@@ -1,14 +1,15 @@
-# agents/case_finder/ir.py
+"""query the CourtListener API."""
+import os
 import httpx
 from .models import CaseDoc
 
-COURTLISTENER_URL = "https://www.courtlistener.com/api/rest/v3/opinions/"
+COURTLISTENER_URL = os.getenv("COURTLISTENER_URL")
 
 
 async def search_cases(query: str, top_k: int = 5) -> list[CaseDoc]:
     async with httpx.AsyncClient() as client:
         resp = await client.get(COURTLISTENER_URL, params={"search": query, "page_size": top_k})
-        #https://www.courtlistener.com/api/rest/v3/opinions/?search=climate+change&page_size=5
+        # https://www.courtlistener.com/api/rest/v3/opinions/?search=climate+change&page_size=5
         data = resp.json()
         results = []
         for d in data.get("results", []):
