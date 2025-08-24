@@ -4,7 +4,7 @@ import json
 
 from typing import Dict, Any
 
-import security
+from .security import sign_message, verify_message
 
 ALLOWED_SKEW = 300  # 5 minutes
 
@@ -14,7 +14,7 @@ def sign_request(method: str, path: str, body: Dict[str, Any]) -> Dict[str, str]
     timestamp = str(int(time.time()))
     body_str = json.dumps(body, separators=(',', ':')) if body else ''
     msg = f"{timestamp}{method.upper()}{path}{body_str}"
-    signature = security.sign_message(msg)
+    signature = sign_message(msg)
 
     return {
         "X-A2A-Key": "agent1",  # static for now, rotate later
@@ -33,7 +33,7 @@ def verify_request(method: str, path: str, body: str, headers: Dict[str, str]) -
 
         signature = headers.get("X-A2A-Signature", "")
         msg = f"{timestamp}{method.upper()}{path}{body or ''}"
-        return security.verify_message(msg, signature)
+        return verify_message(msg, signature)
     except KeyError:
         return False
 
