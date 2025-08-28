@@ -1,8 +1,13 @@
 import logging
-import json
+import os
 
-logger = logging.getLogger("legal_agents")
-logger.setLevel(logging.INFO)
+def setup_logger():
+    logger = logging.getLogger("LegalCaseResearcher")
+    logger.setLevel(logging.INFO)
+    handler = logging.FileHandler("audit.log")
+    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    return logger
 
-def log_json(event: dict):
-    print(json.dumps(event))
+logger = setup_logger()
