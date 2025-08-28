@@ -1,24 +1,15 @@
-from fastapi import FastAPI, Request
-from pydantic import BaseModel
-from typing import List
-import json
-from common.http import verify_request, error_response
-from .ir import search_cases
-from .models import CaseDoc
+from fastapi import FastAPI, Depends
+from common.security import api_key_header, verify_token, limiter
+from common.models import QueryRequest, Case
+from agents.case_finder.ir import search_cases
+from common.logging import logger
 
-app = FastAPI()
+app = FastAPI(title="Case Finder Agent")
+app.state.limiter = limiter
 
-
-class SearchRequest(BaseModel):
-    query: str
-    top_k: int = 5
-
-
-@app.post("/search")
-async def search(req: SearchRequest, request: Request):
-    body = await request.body()
-    # if not verify_request("POST", "/search", body.decode(), request.headers):
-    # return error_response("UNAUTHORIZED", "Invalid signature")
-
-    results: List[CaseDoc] = await search_cases(req.query, req.top_k)
-    return {"results": [r.dict() for r in results]}
+@app.post("/search", response_model=list[Case])
+@limiter.limit("10/minute")
+async def search(request: QueryRequest, token: str = Depends(api_key_header)):
+    logger.info(f"Case Finder search: {request.query}")
+    verify_token(token)
+    return search_cases(request.query)
