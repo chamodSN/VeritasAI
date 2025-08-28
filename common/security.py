@@ -1,18 +1,29 @@
-"""signing and verifying messages securely using HMAC with SHA-256 hashing.
-for communication between agents or the main application."""
-import hmac
-import hashlib
+import jwt
+from fastapi import HTTPException, Depends
+from fastapi.security import APIKeyHeader
+from dotenv import load_dotenv
 import os
+from cryptography.fernet import Fernet
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
-SECRET_KEY = os.getenv("AGENT_SECRET", "default_secret_key")
+load_dotenv()
 
+JWT_SECRET = os.getenv("JWT_SECRET")
+ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
+fernet = Fernet(ENCRYPTION_KEY.encode())
+limiter = Limiter(key_func=get_remote_address)
+api_key_header = APIKeyHeader(name="Authorization")
 
-def sign_message(message: str) -> str:
-    """"Signing the Message"""
-    return hmac.new(SECRET_KEY.encode(), message.encode(), hashlib.sha256).hexdigest()
+def verify_token(token: str):
+    try:
+        payload = jwt.decode(token.replace("Bearer ", ""), JWT_SECRET, algorithms=["HS256"])
+        return payload
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
 
+def encrypt_data(data: str) -> str:
+    return fernet.encrypt(data.encode()).decode()
 
-def verify_message(message: str, signature: str) -> bool:
-    """Verifying the Message"""
-    expected_signature = sign_message(message)
-    return hmac.compare_digest(expected_signature, signature)
+def decrypt_data(encrypted_data: str) -> str:
+    return fernet.decrypt(encrypted_data.encode()).decode()
