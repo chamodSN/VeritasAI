@@ -1,100 +1,55 @@
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+import httpx
+from sentence_transformers import SentenceTransformer
 import faiss
 import numpy as np
-from transformers import AutoTokenizer, AutoModel
-from common.models import Case
+from common.security import verify_token
+from common.logging import logger
 from common.config import Config
-from common.security import encrypt_data, decrypt_data
-import requests
-import json
-import os
+from common.models import SearchRequest
 
-# Initialize tokenizer and model
-tokenizer = AutoTokenizer.from_pretrained(
-    "sentence-transformers/all-MiniLM-L6-v2")
-model = AutoModel.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
+router = APIRouter()
 
-# Initialize FAISS index
-dimension = 384
-index = faiss.IndexFlatL2(dimension)
-cases = []
-case_vectors = []
+model = SentenceTransformer('all-MiniLM-L6-v2')
+index = faiss.IndexFlatL2(384)  # Dimension for MiniLM embeddings
 
 
-def fetch_courtlistener_cases(query: str) -> list:
-    headers = {"Authorization": f"Token {Config.COURTLISTENER_API_KEY}"}
-    response = requests.get(
-        "https://www.courtlistener.com/api/rest/v4/search/", params={"q": query}, headers=headers)
-    if response.status_code != 200:
-        return []
-    results = response.json().get("results", [])
-    return [
-        {
-            "case_name": r["caseName"],
-            "year": int(r["dateFiled"][:4]) if r["dateFiled"] else 0,
-            "court": r["court"],
-            "snippet": r.get("snippet", ""),
-            "full_text": r.get("plain_text", "")
-        }
-        for r in results
-    ]
+class SearchResponse(BaseModel):
+    case_ids: list[str]
 
 
-def load_sample_data():
-    global cases, case_vectors
-    sample_file = "data/samples/cases.jsonl"
-    if os.path.exists(sample_file):
-        with open(sample_file, "r") as f:
-            cases.extend([Case(**json.loads(line)) for line in f])
-    for case in cases:
-        inputs = tokenizer(case.snippet, return_tensors="pt",
-                           padding=True, truncation=True)
-        embedding = model(
-            **inputs).last_hidden_state.mean(dim=1).detach().numpy()
-        case_vectors.append(embedding)
-    if case_vectors:
-        index.add(np.vstack(case_vectors))
-    # Encrypt index
-    with open("data/indexes/cases.faiss", "wb") as f:
-        faiss.write_index(index, f)
-    with open("data/indexes/cases.json", "w") as f:
-        json.dump([case.dict() for case in cases], f)
-    with open("data/indexes/cases.key", "w") as f:
-        f.write(encrypt_data(json.dumps([case.dict() for case in cases])))
+@router.post("/search", response_model=SearchResponse)
+async def search_cases(request: SearchRequest, token: str = Depends(verify_token)):
+    try:
+        query = f"{request.case_type} {request.topic}"
+        query_embedding = model.encode([query])[0]
+        query_embedding = np.array([query_embedding]).astype('float32')
 
+        async with httpx.AsyncClient() as client:
+            # Start with mandatory parameters
+            params = {
+                "q": query,
+                "type": "o"
+            }
 
-def search_cases(query: str) -> list[Case]:
-    # Try CourtListener API
-    cl_cases = fetch_courtlistener_cases(query)
-    if cl_cases:
-        global cases, case_vectors, index
-        cases = [Case(**case) for case in cl_cases]
-        case_vectors = []
-        index = faiss.IndexFlatL2(dimension)
-        for case in cases:
-            inputs = tokenizer(case.snippet, return_tensors="pt",
-                               padding=True, truncation=True)
-            embedding = model(
-                **inputs).last_hidden_state.mean(dim=1).detach().numpy()
-            case_vectors.append(embedding)
-        if case_vectors:
-            index.add(np.vstack(case_vectors))
+            # Add optional parameters only if they are not None
+            if request.date_from:
+                params["date_filed_after"] = request.date_from
+            if request.date_to:
+                params["date_filed_before"] = request.date_to
 
-    # Load local data if no API results
-    if not cases and os.path.exists("data/indexes/cases.key"):
-        with open("data/indexes/cases.key", "r") as f:
-            decrypted = decrypt_data(f.read())
-            cases = [Case(**case) for case in json.loads(decrypted)]
-        with open("data/indexes/cases.faiss", "rb") as f:
-            index = faiss.read_index(f)
+            response = await client.get(
+                f"{Config.COURTLISTENER_BASE_URL}search/",
+                params=params,
+                headers={"Authorization": f"Token {Config.COURTLISTENER_API_KEY}"}
+            )
+            response.raise_for_status()
+            cases = response.json().get("results", [])
 
-    # Search FAISS index
-    inputs = tokenizer(query, return_tensors="pt",
-                       padding=True, truncation=True)
-    query_vector = model(
-        **inputs).last_hidden_state.mean(dim=1).detach().numpy()
-    distances, indices = index.search(query_vector, k=2)
-    return [cases[i] for i in indices[0] if i < len(cases)]
-
-
-# Load sample data on startup
-load_sample_data()
+        case_ids = [str(case["id"]) for case in cases]
+        logger.info(f"Processed case IDs: {case_ids}")
+        return SearchResponse(case_ids=case_ids)
+    except Exception as e:
+        logger.error(f"Error retrieving cases: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))

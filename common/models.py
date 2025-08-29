@@ -1,19 +1,9 @@
-from typing import List, Optional
-
 from pydantic import BaseModel
+from typing import Optional
 
 
-class Case(BaseModel):
-    case_name: str
-    year: int
-    court: str
-    snippet: str
-    full_text: Optional[str] = None
-
-
-class QueryRequest(BaseModel):
-    query: str
-
-
-class QueryResponse(BaseModel):
-    cases: List[Case]
+class SearchRequest(BaseModel):
+    case_type: str
+    topic: str
+    date_from: str | None
+    date_to: str | None

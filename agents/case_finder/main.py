@@ -5,21 +5,17 @@ from spacy.matcher import PhraseMatcher
 import dateparser
 from common.security import verify_token
 from common.logging import logger
+from common.models import SearchRequest
+from .ir import router as search_router
 
-app = FastAPI(title="Query Understanding Agent")
+app = FastAPI(title="Query Understanding and Case Retrieval Agent")
+app.include_router(search_router, prefix="/search")
 
 nlp = spacy.load("en_core_web_md")
 
 
 class QueryRequest(BaseModel):
     query: str
-
-
-class QueryResponse(BaseModel):
-    case_type: str
-    topic: str
-    date_from: str | None
-    date_to: str | None
 
 
 LEGAL_TOPICS = [
@@ -38,7 +34,7 @@ patterns = [nlp(text) for text in LEGAL_TOPICS]
 matcher.add("LEGAL_TOPICS", patterns)
 
 
-@app.post("/parse_query", response_model=QueryResponse)
+@app.post("/parse_query", response_model=SearchRequest)
 async def parse_query(request: QueryRequest, token: str = Depends(verify_token)):
     try:
         doc = nlp(request.query)
@@ -56,6 +52,9 @@ async def parse_query(request: QueryRequest, token: str = Depends(verify_token))
                 if parsed_date:
                     dates.append(parsed_date.date())
 
+        date_from = None
+        date_to = None
+
         if len(dates) >= 1:
             date_from = str(dates[0])
         if len(dates) >= 2:
@@ -72,7 +71,7 @@ async def parse_query(request: QueryRequest, token: str = Depends(verify_token))
             match_id, start, end = matches[0]
             topic = doc[start:end].text
 
-        response = QueryResponse(
+        response = SearchRequest(
             case_type=case_type, topic=topic, date_from=date_from, date_to=date_to)
         logger.info(f"Parsed query: {request.query} -> {response.dict()}")
         return response
