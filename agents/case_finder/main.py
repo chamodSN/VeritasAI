@@ -1,12 +1,14 @@
 from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel
 import spacy
+from spacy.matcher import PhraseMatcher
+import dateparser
 from common.security import verify_token
 from common.logging import logger
 
 app = FastAPI(title="Query Understanding Agent")
 
-nlp = spacy.load("en_core_web_sm")
+nlp = spacy.load("en_core_web_md")
 
 
 class QueryRequest(BaseModel):
@@ -20,6 +22,22 @@ class QueryResponse(BaseModel):
     date_to: str | None
 
 
+LEGAL_TOPICS = [
+    "cyber fraud",
+    "data privacy",
+    "theft",
+    "contract dispute",
+    "intellectual property",
+    "bribery",
+    "tax evasion"
+]
+
+
+matcher = PhraseMatcher(nlp.vocab, attr="LOWER")
+patterns = [nlp(text) for text in LEGAL_TOPICS]
+matcher.add("LEGAL_TOPICS", patterns)
+
+
 @app.post("/parse_query", response_model=QueryResponse)
 async def parse_query(request: QueryRequest, token: str = Depends(verify_token)):
     try:
@@ -29,19 +47,30 @@ async def parse_query(request: QueryRequest, token: str = Depends(verify_token))
         date_from = None
         date_to = None
 
+        query_lower = request.query.lower()
+
+        dates = [ent.text for ent in doc.ents if ent.label_ == "DATE"]
         for ent in doc.ents:
             if ent.label_ == "DATE":
-                if "from" in request.query.lower() or "since" in request.query.lower():
-                    date_from = ent.text
-                elif "to" in request.query.lower() or "until" in request.query.lower():
-                    date_to = ent.text
-            elif ent.label_ == "LAW" or ent.label_ == "ORG":
-                topic = ent.text
+                parsed_date = dateparser.parse(ent.text)
+                if parsed_date:
+                    dates.append(parsed_date.date())
 
-        if "criminal" in request.query.lower():
+        if len(dates) >= 1:
+            date_from = str(dates[0])
+        if len(dates) >= 2:
+            date_to = str(dates[1])
+
+        if "criminal" in query_lower:
             case_type = "criminal"
-        elif "civil" in request.query.lower():
+        elif "civil" in query_lower:
             case_type = "civil"
+
+        matches = matcher(doc)
+        if matches:
+            # Take first match only
+            match_id, start, end = matches[0]
+            topic = doc[start:end].text
 
         response = QueryResponse(
             case_type=case_type, topic=topic, date_from=date_from, date_to=date_to)
