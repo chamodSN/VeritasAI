@@ -12,22 +12,37 @@ from common.models import SearchRequest
 from common.config import Config
 from .utils import parse_dates_smart, normalize_text
 from .ir import router as search_router
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Query Understanding and Case Retrieval Agent")
-app.include_router(search_router, prefix="/search", tags=["search"]) 
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(search_router, prefix="/search", tags=["search"])
 
 nlp = spacy.load("en_core_web_md")
 embed_model = SentenceTransformer('all-MiniLM-L6-v2')
 
+
 class QueryRequest(BaseModel):
     query: str
 
+
 # Dynamic labels (sourced from API, with safe fallbacks)
-CASE_TYPE_CANDIDATES: List[str] = ["criminal", "civil", "tax", "intellectual property", "contract", "labor", "family", "property", "bankruptcy"]
+CASE_TYPE_CANDIDATES: List[str] = ["criminal", "civil", "tax",
+                                   "intellectual property", "contract", "labor", "family", "property", "bankruptcy"]
 TOPIC_CANDIDATES: List[str] = [
     "cyber fraud", "data privacy", "theft", "contract dispute", "intellectual property",
     "bribery", "tax evasion", "employment discrimination", "breach of contract", "consumer protection",
 ]
+
 
 @app.on_event("startup")
 async def load_labels():
@@ -37,16 +52,20 @@ async def load_labels():
             if Config.CASE_TYPE_LABELS_URL:
                 r = await client.get(Config.CASE_TYPE_LABELS_URL)
                 if r.status_code == 200 and isinstance(r.json(), list) and r.json():
-                    CASE_TYPE_CANDIDATES = [str(x).strip() for x in r.json() if str(x).strip()]
+                    CASE_TYPE_CANDIDATES = [str(x).strip()
+                                            for x in r.json() if str(x).strip()]
         except Exception as e:
-            logger.warning(f"CASE_TYPE_LABELS_URL fetch failed, using defaults: {e}")
+            logger.warning(
+                f"CASE_TYPE_LABELS_URL fetch failed, using defaults: {e}")
         try:
             if Config.TOPIC_LABELS_URL:
                 r = await client.get(Config.TOPIC_LABELS_URL)
                 if r.status_code == 200 and isinstance(r.json(), list) and r.json():
-                    TOPIC_CANDIDATES = [str(x).strip() for x in r.json() if str(x).strip()]
+                    TOPIC_CANDIDATES = [str(x).strip()
+                                        for x in r.json() if str(x).strip()]
         except Exception as e:
-            logger.warning(f"TOPIC_LABELS_URL fetch failed, using defaults: {e}")
+            logger.warning(
+                f"TOPIC_LABELS_URL fetch failed, using defaults: {e}")
 
 
 def classify_with_embeddings(text: str, candidates: List[str], min_score: float = 0.35) -> str:
@@ -60,11 +79,12 @@ def classify_with_embeddings(text: str, candidates: List[str], min_score: float 
     return candidates[best_idx] if best_score >= min_score else "unknown"
 
 
-def classify_with_fuzzy(text: str, candidates: List[str], min_score:int=80) -> str:
+def classify_with_fuzzy(text: str, candidates: List[str], min_score: int = 80) -> str:
     if not text:
         return "unknown"
     match = process.extractOne(text, candidates, score_cutoff=min_score)
     return match[0] if match else "unknown"
+
 
 @app.post("/parse_query", response_model=SearchRequest, tags=["parse"])
 async def parse_query(request: QueryRequest, token: str = Depends(verify_token)):
@@ -96,8 +116,8 @@ async def parse_query(request: QueryRequest, token: str = Depends(verify_token))
             raw_query=q,
         )
         logger.info(f"Parsed query: {q} -> {resp.model_dump()}")
+        print(f"Parsed query: {q} -> {resp.model_dump()}")
         return resp
     except Exception as e:
         logger.error(f"Error parsing query: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
