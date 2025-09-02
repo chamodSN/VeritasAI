@@ -19,14 +19,9 @@ api_key_header = APIKeyHeader(name="Authorization")
 
 
 def verify_token(token: str = Depends(api_key_header)):
-    try:
-        if not token.startswith("Bearer "):
-            raise HTTPException(status_code=401, detail="Invalid token format")
-        actual_token = token.split(" ")[1]  # Extract JWT
-        payload = jwt.decode(actual_token, JWT_SECRET, algorithms=["HS256"])
-        return payload
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    if not token.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid token format")
+    return token.split(" ")[1]  # ✅ Return the raw JWT string
 
 
 def encrypt_data(data: str) -> str:

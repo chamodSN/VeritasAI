@@ -10,7 +10,15 @@ class Config:
     CASE_FINDER_URL = os.getenv("CASE_FINDER_URL")
     SUMMARY_URL = os.getenv("SUMMARY_URL")
     CITATION_URL = os.getenv("CITATION_URL")
+    PRECEDENT_URL = os.getenv("PRECEDENT_URL")
     JWT_SECRET = os.getenv("JWT_SECRET")
     ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
     COURTLISTENER_BASE_URL = os.getenv(
-        "COURTLISTENER_BASE_URL", "https://www.courtlistener.com/api/rest/v3/")
+        "COURTLISTENER_BASE_URL", "https://www.courtlistener.com/api/rest/v4/")
+    # Dynamic labels via API (JSON arrays). If empty/unset, we fallback to safe defaults.
+    CASE_TYPE_LABELS_URL = os.getenv("CASE_TYPE_LABELS_URL", "")
+    TOPIC_LABELS_URL = os.getenv("TOPIC_LABELS_URL", "")
+
+    # Caching
+    CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "1800"))
+    CACHE_MAX_ITEMS = int(os.getenv("CACHE_MAX_ITEMS", "512"))
