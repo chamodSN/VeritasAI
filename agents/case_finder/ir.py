@@ -1,38 +1,55 @@
-"""query the CourtListener API."""
-import os
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 import httpx
-from dotenv import load_dotenv
-from .models import CaseDoc
+from sentence_transformers import SentenceTransformer
+import faiss
+import numpy as np
+from common.security import verify_token
+from common.logging import logger
+from common.config import Config
+from common.models import SearchRequest
 
-# Load env variables
-load_dotenv()
-COURTLISTENER_URL = os.getenv("COURTLISTENER_URL")
+router = APIRouter()
+
+model = SentenceTransformer('all-MiniLM-L6-v2')
+index = faiss.IndexFlatL2(384)  # Dimension for MiniLM embeddings
 
 
-async def search_cases(query: str, top_k: int = 5) -> list[CaseDoc]:
-    if not COURTLISTENER_URL:
-        raise ValueError(
-            "COURTLISTENER_URL is not set in environment variables!")
+class SearchResponse(BaseModel):
+    case_ids: list[str]
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(COURTLISTENER_URL, params={"search": query, "page_size": top_k})
-        resp.raise_for_status()
-        data = resp.json()
 
-        results = []
-        for d in data.get("results", []):
-            results.append(CaseDoc(
-                id=str(d["id"]),
-                title=d.get("absolute_url", "Unknown").split(
-                    "/")[-1].replace("-", " ").title(),
-                court="Unknown",  # No court info in v4 JSON; can enrich later
-                date=d.get("date_created", ""),
-                # list of URLs for cited opinions
-                citation=", ".join(d.get("opinions_cited", [])),
-                url="https://www.courtlistener.com" +
-                    d.get("absolute_url", ""),
-                full_text=d.get("html_with_citations") or d.get(
-                    "plain_text", None),
-            ))
+@router.post("/search", response_model=SearchResponse)
+async def search_cases(request: SearchRequest, token: str = Depends(verify_token)):
+    try:
+        query = f"{request.case_type} {request.topic}"
+        query_embedding = model.encode([query])[0]
+        query_embedding = np.array([query_embedding]).astype('float32')
 
-        return results
+        async with httpx.AsyncClient() as client:
+            # Start with mandatory parameters
+            params = {
+                "q": query,
+                "type": "o"
+            }
+
+            # Add optional parameters only if they are not None
+            if request.date_from:
+                params["date_filed_after"] = request.date_from
+            if request.date_to:
+                params["date_filed_before"] = request.date_to
+
+            response = await client.get(
+                f"{Config.COURTLISTENER_BASE_URL}search/",
+                params=params,
+                headers={"Authorization": f"Token {Config.COURTLISTENER_API_KEY}"}
+            )
+            response.raise_for_status()
+            cases = response.json().get("results", [])
+
+        case_ids = [str(case["id"]) for case in cases]
+        logger.info(f"Processed case IDs: {case_ids}")
+        return SearchResponse(case_ids=case_ids)
+    except Exception as e:
+        logger.error(f"Error retrieving cases: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))

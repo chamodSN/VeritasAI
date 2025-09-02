@@ -1,24 +1,80 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel
-from typing import List
-import json
-from common.http import verify_request, error_response
-from .ir import search_cases
-from .models import CaseDoc
+import spacy
+from spacy.matcher import PhraseMatcher
+import dateparser
+from common.security import verify_token
+from common.logging import logger
+from common.models import SearchRequest
+from .ir import router as search_router
 
-app = FastAPI()
+app = FastAPI(title="Query Understanding and Case Retrieval Agent")
+app.include_router(search_router, prefix="/search")
+
+nlp = spacy.load("en_core_web_md")
 
 
-class SearchRequest(BaseModel):
+class QueryRequest(BaseModel):
     query: str
-    top_k: int = 5
 
 
-@app.post("/search")
-async def search(req: SearchRequest, request: Request):
-    body = await request.body()
-    # if not verify_request("POST", "/search", body.decode(), request.headers):
-    # return error_response("UNAUTHORIZED", "Invalid signature")
+LEGAL_TOPICS = [
+    "cyber fraud",
+    "data privacy",
+    "theft",
+    "contract dispute",
+    "intellectual property",
+    "bribery",
+    "tax evasion"
+]
 
-    results: List[CaseDoc] = await search_cases(req.query, req.top_k)
-    return {"results": [r.dict() for r in results]}
+
+matcher = PhraseMatcher(nlp.vocab, attr="LOWER")
+patterns = [nlp(text) for text in LEGAL_TOPICS]
+matcher.add("LEGAL_TOPICS", patterns)
+
+
+@app.post("/parse_query", response_model=SearchRequest)
+async def parse_query(request: QueryRequest, token: str = Depends(verify_token)):
+    try:
+        doc = nlp(request.query)
+        case_type = "unknown"
+        topic = "unknown"
+        date_from = None
+        date_to = None
+
+        query_lower = request.query.lower()
+
+        dates = [ent.text for ent in doc.ents if ent.label_ == "DATE"]
+        for ent in doc.ents:
+            if ent.label_ == "DATE":
+                parsed_date = dateparser.parse(ent.text)
+                if parsed_date:
+                    dates.append(parsed_date.date())
+
+        date_from = None
+        date_to = None
+
+        if len(dates) >= 1:
+            date_from = str(dates[0])
+        if len(dates) >= 2:
+            date_to = str(dates[1])
+
+        if "criminal" in query_lower:
+            case_type = "criminal"
+        elif "civil" in query_lower:
+            case_type = "civil"
+
+        matches = matcher(doc)
+        if matches:
+            # Take first match only
+            match_id, start, end = matches[0]
+            topic = doc[start:end].text
+
+        response = SearchRequest(
+            case_type=case_type, topic=topic, date_from=date_from, date_to=date_to)
+        logger.info(f"Parsed query: {request.query} -> {response.dict()}")
+        return response
+    except Exception as e:
+        logger.error(f"Error parsing query: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
