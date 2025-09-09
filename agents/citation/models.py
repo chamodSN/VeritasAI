@@ -1,14 +1,10 @@
-from pydantic import BaseModel
-from typing import Optional
+from pydantic import BaseModel, Field
+from typing import Optional, List, Dict, Any
 
 class CitationRequest(BaseModel):
-    title: str
-    court: str
-    date: str
-    reporter: Optional[str]
-    volume: Optional[str]
-    page: Optional[str]
-    url: Optional[str]
-    jurisdiction: Optional[str]
-    style: str = "Bluebook"
-    
+    case_id: str
+    case_data: Optional[Dict[str, Any]] = None
+
+
+class CitationResponse(BaseModel):
+    citations: List[str]
