@@ -1,8 +1,8 @@
+# case_finder/main.py (Updated parse_query to prioritize fuzzy/embeddings over rule_based for generalization)
 from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List
 import spacy
-from spacy.matcher import Matcher
 import httpx
 from rapidfuzz import process
 from sentence_transformers import SentenceTransformer, util
@@ -11,21 +11,14 @@ from common.logging import logger
 from common.models import SearchRequest
 from common.config import Config
 from .utils import parse_dates_smart, normalize_text
-from .ir import router as search_router
 from fastapi.middleware.cors import CORSMiddleware
+from .ir import router as ir_router
 
-app = FastAPI(title="Query Understanding and Case Retrieval Agent")
+app = FastAPI(title="Query Understanding Agent")
 
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.include_router(search_router, prefix="/search", tags=["search"])
+# Include the ir.py router
+app.include_router(ir_router, tags=["search"])
 
 nlp = spacy.load("en_core_web_md")
 embed_model = SentenceTransformer('all-MiniLM-L6-v2')
@@ -35,7 +28,6 @@ class QueryRequest(BaseModel):
     query: str
 
 
-# Dynamic labels (sourced from API, with safe fallbacks)
 CASE_TYPE_CANDIDATES: List[str] = ["criminal", "civil", "tax",
                                    "intellectual property", "contract", "labor", "family", "property", "bankruptcy"]
 TOPIC_CANDIDATES: List[str] = [
@@ -51,24 +43,25 @@ async def load_labels():
         try:
             if Config.CASE_TYPE_LABELS_URL:
                 r = await client.get(Config.CASE_TYPE_LABELS_URL)
-                if r.status_code == 200 and isinstance(r.json(), list) and r.json():
-                    CASE_TYPE_CANDIDATES = [str(x).strip()
-                                            for x in r.json() if str(x).strip()]
+                r.raise_for_status()
+                CASE_TYPE_CANDIDATES = [str(x).strip().lower()
+                                        for x in r.json() if str(x).strip()]
+                logger.info(f"Loaded {len(CASE_TYPE_CANDIDATES)} case types")
         except Exception as e:
             logger.warning(
-                f"CASE_TYPE_LABELS_URL fetch failed, using defaults: {e}")
+                f"CASE_TYPE_LABELS_URL failed: {e}. Using defaults.")
         try:
             if Config.TOPIC_LABELS_URL:
                 r = await client.get(Config.TOPIC_LABELS_URL)
-                if r.status_code == 200 and isinstance(r.json(), list) and r.json():
-                    TOPIC_CANDIDATES = [str(x).strip()
-                                        for x in r.json() if str(x).strip()]
+                r.raise_for_status()
+                TOPIC_CANDIDATES = [str(x).strip().lower()
+                                    for x in r.json() if str(x).strip()]
+                logger.info(f"Loaded {len(TOPIC_CANDIDATES)} topics")
         except Exception as e:
-            logger.warning(
-                f"TOPIC_LABELS_URL fetch failed, using defaults: {e}")
+            logger.warning(f"TOPIC_LABELS_URL failed: {e}. Using defaults.")
 
 
-def classify_with_embeddings(text: str, candidates: List[str], min_score: float = 0.35) -> str:
+def classify_with_embeddings(text: str, candidates: List[str], min_score: float = 0.2) -> str:
     if not text or not candidates:
         return "unknown"
     q = embed_model.encode([text])[0]
@@ -79,32 +72,41 @@ def classify_with_embeddings(text: str, candidates: List[str], min_score: float 
     return candidates[best_idx] if best_score >= min_score else "unknown"
 
 
-def classify_with_fuzzy(text: str, candidates: List[str], min_score: int = 80) -> str:
+def classify_with_fuzzy(text: str, candidates: List[str], min_score: int = 60) -> str:
     if not text:
         return "unknown"
     match = process.extractOne(text, candidates, score_cutoff=min_score)
     return match[0] if match else "unknown"
 
 
+def rule_based_case_type(query: str) -> str:
+    query = query.lower()
+    if "fraud" in query or "crime" in query or "cases" in query:
+        return "criminal"
+    return None
+
+
 @app.post("/parse_query", response_model=SearchRequest, tags=["parse"])
-async def parse_query(request: QueryRequest, token: str = Depends(verify_token)):
+async def parse_query(request: QueryRequest, token: dict = Depends(verify_token)):
+    logger.debug(f"Received token claims: {token}")
     try:
         q = normalize_text(request.query)
         doc = nlp(q)
 
-        # Dates (robust heuristics incl. relative/Q#)
         date_from, date_to = parse_dates_smart(q)
 
-        # Candidate text for type/topic: noun chunks + query
         chunks = [chunk.text for chunk in doc.noun_chunks]
         bag = " ".join(chunks) if chunks else q
 
-        # Two-stage classification: fuzzy (typo tolerant) → embeddings (semantic)
-        case_type = classify_with_fuzzy(bag, CASE_TYPE_CANDIDATES) or "unknown"
+        case_type = classify_with_fuzzy(bag, CASE_TYPE_CANDIDATES)
         if case_type == "unknown":
             case_type = classify_with_embeddings(bag, CASE_TYPE_CANDIDATES)
+        if case_type == "unknown":
+            rule_case = rule_based_case_type(q)
+            if rule_case:
+                case_type = rule_case
 
-        topic = classify_with_fuzzy(bag, TOPIC_CANDIDATES) or "unknown"
+        topic = classify_with_fuzzy(bag, TOPIC_CANDIDATES)
         if topic == "unknown":
             topic = classify_with_embeddings(bag, TOPIC_CANDIDATES)
 
@@ -116,8 +118,7 @@ async def parse_query(request: QueryRequest, token: str = Depends(verify_token))
             raw_query=q,
         )
         logger.info(f"Parsed query: {q} -> {resp.model_dump()}")
-        print(f"Parsed query: {q} -> {resp.model_dump()}")
         return resp
     except Exception as e:
-        logger.error(f"Error parsing query: {str(e)}")
+        logger.error(f"Error parsing query: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
