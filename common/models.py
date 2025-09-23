@@ -8,11 +8,17 @@ class SearchRequest(BaseModel):
     date_from: str | None
     date_to: str | None
 
-
 class PrecedentRequest(BaseModel):
     case_id: str
     citations: List[str]
 
-
 class PrecedentResponse(BaseModel):
     related_cases: List[Dict[str, Any]] = Field(default_factory=list)
+    
+class SummaryRequest(BaseModel):
+    case_id: str
+    case_data: Optional[Dict[str, Any]] = None
+
+
+class SummaryResponse(BaseModel):
+    summary: Dict[str, Any]
