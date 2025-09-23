@@ -1,3 +1,4 @@
+# precedent/main.py
 from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
@@ -13,7 +14,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Precedent Agent")
 
-# Initialize sentence transformer and FAISS index
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 try:
     model = SentenceTransformer('all-MiniLM-L6-v2')
     dimension = 384
@@ -50,7 +58,7 @@ async def fetch_case_text(case_id: str, client: httpx.AsyncClient) -> str:
 async def fetch_cited_cases(citation: str, client: httpx.AsyncClient) -> List[Dict[str, Any]]:
     try:
         response = await client.get(
-            f"{Config.COURTLISTENER_BASE_URL}clusters/?q=cited_by:{citation}&court=scotus",
+            f"{Config.COURTLISTENER_BASE_URL}clusters/?q=cited_by:{citation}&court=scotus&date_filed_min=2010-01-01&date_filed_max=2025-12-31",
             headers={"Authorization": f"Token {Config.COURTLISTENER_API_KEY}"}
         )
         response.raise_for_status()
@@ -63,6 +71,7 @@ async def fetch_cited_cases(citation: str, client: httpx.AsyncClient) -> List[Di
                 "date_filed": result.get("date_filed", "Unknown")
             }
             for result in results[:3]
+            if result.get("date_filed", "") <= "2025-12-31"
         ]
     except httpx.HTTPStatusError as e:
         logger.error(
@@ -79,14 +88,12 @@ async def fetch_similar_cases(case_text: str, client: httpx.AsyncClient) -> List
         if not case_text:
             return []
 
-        # Encode query text
         embedding = model.encode([case_text])[0]
         embedding = np.array([embedding]).astype('float32')
         embedding /= np.linalg.norm(embedding, axis=1, keepdims=True)
 
-        # Fetch recent SCOTUS cases for similarity search
         response = await client.get(
-            f"{Config.COURTLISTENER_BASE_URL}clusters/?court=scotus&date_filed_min=2020-01-01",
+            f"{Config.COURTLISTENER_BASE_URL}clusters/?court=scotus&date_filed_min=2010-01-01&date_filed_max=2025-12-31",
             headers={"Authorization": f"Token {Config.COURTLISTENER_API_KEY}"}
         )
         response.raise_for_status()
@@ -117,14 +124,12 @@ async def fetch_similar_cases(case_text: str, client: httpx.AsyncClient) -> List
         if not texts:
             return []
 
-        # Build FAISS index
         embeddings = model.encode(texts)
         embeddings = np.array(embeddings).astype('float32')
         embeddings /= np.linalg.norm(embeddings, axis=1, keepdims=True)
         temp_index = faiss.IndexFlatL2(dimension)
         temp_index.add(embeddings)
 
-        # Search for similar cases
         _, indices = temp_index.search(embedding, 3)
         return [case_details[i] for i in indices[0] if i < len(case_details)]
 
@@ -153,19 +158,16 @@ async def find_precedents(request: PrecedentRequest, token: dict = Depends(verif
         async with httpx.AsyncClient(timeout=30) as client:
             case_text = await fetch_case_text(case_id, client)
 
-            # Citation-based search
             for citation in citations[:5]:
                 cited_cases = await fetch_cited_cases(citation, client)
                 related_cases.extend(cited_cases)
 
-            # Embedding-based search if citations are empty
             if not related_cases and case_text:
                 logger.debug(
                     f"No citation-based precedents for case_id {case_id}, trying similarity search")
                 similar_cases = await fetch_similar_cases(case_text, client)
                 related_cases.extend(similar_cases)
 
-        # Deduplicate related cases
         seen = set()
         unique_cases = [case for case in related_cases if not (
             case["case_id"] in seen or seen.add(case["case_id"]))]
