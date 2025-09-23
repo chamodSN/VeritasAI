@@ -8,3 +8,11 @@ class CitationRequest(BaseModel):
 
 class CitationResponse(BaseModel):
     citations: List[str]
+
+class CitationRequest(BaseModel):
+    case_id: str
+    case_data: Optional[Dict[str, Any]] = None
+
+
+class CitationResponse(BaseModel):
+    citations: List[str]
