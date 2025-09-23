@@ -1,3 +1,4 @@
+# common/config.py (No changes necessary, but confirmed MONGO_URI points to Atlas; user will update .env)
 """Configuration module to manage environment variables for the application."""
 import os
 from dotenv import load_dotenv

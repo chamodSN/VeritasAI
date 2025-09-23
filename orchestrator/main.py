@@ -1,4 +1,4 @@
-# orchestrator/main.py
+# orchestrator/main.py (Fixed spelling from orcherestrator. No other changes necessary as IR updates are in case_finder. RA handled in sub-agents.)
 from fastapi import FastAPI, Depends, HTTPException
 import httpx
 from pydantic import BaseModel

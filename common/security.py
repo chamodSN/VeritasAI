@@ -1,3 +1,4 @@
+# common/security.py (No changes necessary)
 # common/security.py
 import jwt
 from fastapi import HTTPException, Depends

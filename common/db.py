@@ -1,3 +1,4 @@
+# common/db.py (No changes necessary; now points to MongoDB Atlas via .env URI)
 from pymongo import MongoClient
 from datetime import datetime
 from common.config import Config

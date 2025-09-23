@@ -1,3 +1,4 @@
+# common/models.py (No changes necessary)
 # common/models.py (Updated to add court field to SearchRequest)
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
@@ -23,8 +24,35 @@ class SearchResponse(BaseModel):
     cases: List[Dict[str, Any]] = Field(default_factory=list)
 
 
+class SummaryRequest(BaseModel):
+    case_id: str
+    case_data: Optional[Dict[str, Any]] = None
+
+
+class SummaryResponse(BaseModel):
+    summary: Dict[str, Any]
+
+
+class CitationRequest(BaseModel):
+    case_id: str
+    case_data: Optional[Dict[str, Any]] = None
+
+
+class CitationResponse(BaseModel):
+    citations: List[str]
+
+
 class QueryRequest(BaseModel):
     query: str
+
+
+class PrecedentRequest(BaseModel):
+    case_id: str
+    citations: List[str]
+
+
+class PrecedentResponse(BaseModel):
+    related_cases: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class Case(BaseModel):
