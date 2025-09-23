@@ -1,4 +1,3 @@
-# common/models.py (No changes necessary)
 # common/models.py (Updated to add court field to SearchRequest)
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
@@ -68,3 +67,7 @@ class Case(BaseModel):
 
 class QueryResponse(BaseModel):
     cases: List[Case]
+    case_type: str
+    topic: str
+    date_from: str | None
+    date_to: str | None
