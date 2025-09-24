@@ -1,20 +1,18 @@
-# common/models.py (Updated to add court field to SearchRequest)
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 
 
 class SearchRequest(BaseModel):
-    case_type: str = Field(
-        "unknown", description="Detected case type (criminal/civil/…)")
-    topic: str = Field("unknown", description="Detected legal topic/category")
+    case_type: str = Field("unknown", description="Detected case type")
+    topic: str = Field("unknown", description="Detected legal topic")
     date_from: Optional[str] = Field(
         None, description="ISO date lower bound (YYYY-MM-DD)")
     date_to: Optional[str] = Field(
         None, description="ISO date upper bound (YYYY-MM-DD)")
-    raw_query: Optional[str] = Field(
-        None, description="Original user query for traceability")
-    court: Optional[str] = Field(
-        None, description="Court filter (e.g., 'scotus')")
+    raw_query: Optional[str] = Field(None, description="Original user query")
+    court: Optional[str] = Field(None, description="Court filter")
+    page: int = Field(default=1, description="Page number for pagination")
+    per_page: int = Field(default=10, description="Results per page")
 
 
 class SearchResponse(BaseModel):
@@ -23,26 +21,29 @@ class SearchResponse(BaseModel):
     cases: List[Dict[str, Any]] = Field(default_factory=list)
 
 
-class SummaryRequest(BaseModel):
-    case_id: str
-    case_data: Optional[Dict[str, Any]] = None
-
-
-class SummaryResponse(BaseModel):
-    summary: Dict[str, Any]
-
-
-class CitationRequest(BaseModel):
-    case_id: str
-    case_data: Optional[Dict[str, Any]] = None
-
-
-class CitationResponse(BaseModel):
-    citations: List[str]
-
-
 class QueryRequest(BaseModel):
     query: str
+
+
+class Case(BaseModel):
+    case_id: str
+    title: str
+    court: Optional[str] = None
+    decision: Optional[str] = None
+    docket_id: Optional[str] = None
+    date: Optional[str] = None  # Added date field
+    summary: Optional[Dict[str, Any]] = None
+    legal_citations: Optional[List[str]] = None
+    citations_count: Optional[int] = None
+    related_precedents: Optional[List[Dict[str, Any]]] = None
+
+
+class QueryResponse(BaseModel):
+    cases: List[Case]
+    case_type: str
+    topic: str
+    date_from: str | None
+    date_to: str | None
 
 
 class PrecedentRequest(BaseModel):
@@ -54,20 +55,10 @@ class PrecedentResponse(BaseModel):
     related_cases: List[Dict[str, Any]] = Field(default_factory=list)
 
 
-class Case(BaseModel):
+class SummaryRequest(BaseModel):
     case_id: str
-    case_name: str
-    court: str
-    decision: str
+    case_data: Optional[Dict[str, Any]] = None
+
+
+class SummaryResponse(BaseModel):
     summary: Dict[str, Any]
-    citations: List[str]
-    related_precedents: List[Dict[str, Any]] = Field(
-        default_factory=list)  # Updated to match frontend expectation
-
-
-class QueryResponse(BaseModel):
-    cases: List[Case]
-    case_type: str
-    topic: str
-    date_from: str | None
-    date_to: str | None

@@ -1,21 +1,19 @@
-# case_finder/ir.py (Updated for hybrid IR: Use MongoDB Atlas for document cache and vector index. Hybrid retrieval (keyword + semantic). Added ML cross-encoder reranker. RA checks for result diversity/transparency. Removed on-the-fly CourtListener search; use pre-indexed data.)
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
-from sentence_transformers import SentenceTransformer
-from sentence_transformers.cross_encoder import CrossEncoder
-from typing import List, Dict, Any
-from common.security import verify_token
-from common.logging import logger
-from common.models import SearchRequest, SearchResponse
+from common.responsible_ai import responsible_ai
+from common.courtlistener_api import courtlistener_api
 from common.config import Config
-from common.db import MongoDB
+from common.models import SearchRequest, SearchResponse, Case
+from common.logging import logger
+from common.security import verify_token
 import numpy as np
+import httpx
+import re
+from sentence_transformers import SentenceTransformer
+from typing import Dict, Any, List
+from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException
 
 router = APIRouter()
-embed_model = SentenceTransformer(
-    'nlpaueb/legal-bert-base-uncased')  # Legal-specific embeddings
-# Pre-trained reranker; can fine-tune on CourtListener data later
-reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+embed_model = SentenceTransformer('all-MiniLM-L6-v2')
 
 
 class SearchRequestExtended(SearchRequest):
@@ -25,82 +23,93 @@ class SearchRequestExtended(SearchRequest):
 @router.post("/search", response_model=SearchResponse)
 async def search_cases(request: SearchRequestExtended, token: dict = Depends(verify_token)):
     try:
-        # Document cache with vector index
-        collection = MongoDB.get_db()["cases"]
+        if request.num_results > Config.MAX_RESULTS_PER_QUERY:
+            request.num_results = Config.MAX_RESULTS_PER_QUERY
+            logger.warning(
+                f"RA Check: Limited results to {Config.MAX_RESULTS_PER_QUERY}")
 
-        # Parse query for hybrid: Keyword terms + semantic embedding
-        query_terms: List[str] = []
-        for token in filter(None, (request.case_type or '').split() + (request.topic or '').split()):
-            term = token
-            if len(term) >= 2:
-                if len(term) < 5:
-                    qt = f"{term}*"
-                else:
-                    qt = f"{term}~"
-                query_terms.append(qt)
-        keyword_query = " ".join(query_terms) if query_terms else (
-            request.raw_query or "")
-        qtext = f"{request.case_type} {request.topic} {request.raw_query}".strip()
+        def sanitize_query_text(text: str) -> str:
+            if not text:
+                return ""
+            cleaned = re.sub(r"[^\w\s.,!?]", " ", text)
+            cleaned = re.sub(r"\s+", " ", cleaned).strip()[:150]
+            return cleaned
 
-        # Embed query for semantic search
-        Q = embed_model.encode([qtext])
-        query_vector = Q[0].tolist()
+        query_parts = [sanitize_query_text(request.raw_query or "")]
+        if request.topic and request.topic != "unknown":
+            query_parts.append(request.topic)
+        if request.case_type and request.case_type != "unknown":
+            query_parts.append(request.case_type)
 
-        # Hybrid Retrieval: Vector search with filters (date, court already pre-filtered to scotus)
-        # Note: Assumes MongoDB Atlas vector index named 'vector_index' on 'embedding'
-        vector_pipeline = [
-            {
-                "$vectorSearch": {
-                    "index": "vector_index",
-                    "path": "embedding",
-                    "queryVector": query_vector,
-                    "numCandidates": 100,
-                    "limit": request.num_results * 2  # Oversample for reranking
-                }
-            },
-            # Hybrid: Add keyword filter if present
-            {"$match": {"$text": {"$search": keyword_query}} if keyword_query else {}},
-            {
-                "$project": {
-                    "score": {"$meta": "vectorSearchScore"},
-                    "metadata": 1,
-                    "text": 1
-                }
-            }
-        ]
-        if request.date_from or request.date_to:
-            match_stage = {}
-            if request.date_from:
-                match_stage["metadata.dateFiled"] = {"$gte": request.date_from}
-            if request.date_to:
-                match_stage["metadata.dateFiled"] = {"$lte": request.date_to}
-            vector_pipeline.insert(1, {"$match": match_stage})  # Filter dates
+        search_query = " ".join(filter(None, query_parts)) or "legal cases"
 
-        candidates = list(collection.aggregate(vector_pipeline))
-        logger.info(f"Hybrid retrieval fetched {len(candidates)} candidates")
+        try:
+            search_results = await courtlistener_api.search_cases(
+                query=search_query,
+                court=request.court or "",
+                date_from=request.date_from,
+                date_to=request.date_to,
+                page_size=request.num_results
+            )
+            logger.info(f"CourtListener raw response: {search_results}")
+        except Exception as e:
+            logger.warning(
+                f"Primary search failed: {e}. Retrying with simplified query.")
+            simplified_query = request.topic or "legal cases"
+            search_results = await courtlistener_api.search_cases(
+                query=simplified_query,
+                court="",
+                date_from=request.date_from,
+                date_to=request.date_to,
+                page_size=request.num_results
+            )
+            logger.info(f"CourtListener simplified response: {search_results}")
+
+        candidates = search_results.get("results", [])
+        logger.info(f"CourtListener returned {len(candidates)} candidates")
 
         if not candidates:
             return SearchResponse(case_ids=[], hit_count=0, cases=[])
 
-        # ML Reranking with cross-encoder
-        pairs = [[qtext, cand["text"]] for cand in candidates]
-        scores = reranker.predict(pairs)
-        sorted_indices = np.argsort(scores)[::-1]
+        qtext = f"{request.topic or ''} {request.raw_query or ''}".strip()
+        query_embedding = embed_model.encode([qtext])[0]
+
+        candidate_texts = [
+            f"{c.get('caseName', c.get('name', ''))} {c.get('text', '')} {c.get('snippet', '')}" for c in candidates]
+        candidate_embeddings = embed_model.encode(candidate_texts)
+
+        similarities = [
+            (i, np.dot(query_embedding, emb) /
+             (np.linalg.norm(query_embedding) * np.linalg.norm(emb)))
+            for i, emb in enumerate(candidate_embeddings)
+        ]
+        similarities.sort(key=lambda x: x[1], reverse=True)
         top_k = min(request.num_results, len(candidates))
-        reranked = [candidates[i] for i in sorted_indices[:top_k]]
+        reranked_candidates = [candidates[i] for i, _ in similarities[:top_k]]
 
-        # Prepare response
-        case_ids = [cand["metadata"]["cluster_id"] for cand in reranked]
-        cases = [cand["metadata"] for cand in reranked]
+        case_ids = [str(c.get("id", c.get("cluster_id", "")))
+                    for c in reranked_candidates]
+        cases = [
+            Case(
+                case_id=str(c.get("id", c.get("cluster_id", ""))),
+                title=c.get("caseName", c.get("name", "")),
+                court=c.get("court_citation_string",
+                            c.get("court_name", None)),
+                decision=c.get("disposition", c.get("status", None)),
+                docket_id=c.get("docketNumber", c.get("docket_number", None))
+            ).dict()
+            for c in reranked_candidates
+        ]
 
-        # RA Check: Transparency (log scores), Fairness (check diversity in courts/topics, but since scotus only, log avg score)
-        avg_score = np.mean(scores) if len(scores) > 0 else 0
-        if avg_score < 0.5:
+        diversity_check = await responsible_ai.check_result_diversity(cases)
+        relevance_check = await responsible_ai.check_result_relevance(qtext, cases)
+
+        if not diversity_check.get("is_diverse", True):
             logger.warning(
-                f"RA Check: Low average reranking score ({avg_score}). Potential relevance bias; consider model fine-tuning on diverse legal data.")
-        else:
-            logger.info(
-                f"RA Check: Results reranked with avg score {avg_score}. Ethical handling: Auditable scores ensure transparency; no PII in public data.")
+                f"RA Check: Low diversity - {diversity_check.get('recommendations', [])}")
+        if not relevance_check.get("is_relevant", True):
+            logger.warning(
+                f"RA Check: Low relevance - avg_relevance: {relevance_check.get('relevance_score', 0)}")
 
         logger.info(f"Returning {len(case_ids)} case IDs")
         return SearchResponse(case_ids=case_ids, hit_count=len(case_ids), cases=cases)
@@ -112,8 +121,12 @@ async def search_cases(request: SearchRequestExtended, token: dict = Depends(ver
 
 @router.get("/cases/{cluster_id}")
 async def get_case_by_id(cluster_id: str, token: dict = Depends(verify_token)) -> Dict[str, Any]:
-    collection = MongoDB.get_db()["cases"]
-    doc = collection.find_one({"_id": cluster_id}, {"metadata": 1})
-    if not doc:
-        raise HTTPException(status_code=404, detail="Case not found")
-    return doc["metadata"]
+    try:
+        case_details = await courtlistener_api.get_case_details(cluster_id)
+        if not case_details:
+            raise HTTPException(status_code=404, detail="Case not found")
+        logger.info(f"Case details for {cluster_id}: {case_details}")
+        return case_details
+    except Exception as e:
+        logger.error(f"Error fetching case {cluster_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
