@@ -58,4 +58,4 @@ coverage.xml
 # ---- Environment Variables ----
 .env
 *.env
-models/all-MiniLM-L6-v2/1_Pooling/config.json
+models
