@@ -1,5 +1,6 @@
 annotated-types==0.7.0
 anyio==4.10.0
+bcrypt==4.3.0
 blinker==1.9.0
 blis==1.3.0
 cachetools==6.2.0
@@ -18,6 +19,7 @@ cymem==2.0.11
 dateparser==1.2.2
 Deprecated==1.2.18
 dnspython==2.7.0
+docker==7.1.0
 dotenv==0.9.9
 en_core_web_md @ https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.8.0/en_core_web_md-3.8.0-py3-none-any.whl#sha256=5e6329fe3fecedb1d1a02c3ea2172ee0fede6cea6e4aefb6a02d832dba78a310
 en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl#sha256=1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85
@@ -27,6 +29,8 @@ fastapi==0.116.1
 filelock==3.19.1
 Flask==3.1.2
 fsspec==2025.7.0
+fuzzywuzzy==0.18.0
+greenlet==3.2.4
 h11==0.16.0
 httpcore==1.0.9
 httpx==0.28.1
@@ -39,19 +43,25 @@ joblib==1.5.2
 langcodes==3.5.0
 language_data==1.3.0
 language_tool_python==2.9.4
+Levenshtein==0.27.1
 limits==5.5.0
 marisa-trie==1.3.1
 markdown-it-py==4.0.0
 MarkupSafe==3.0.2
 mdurl==0.1.2
+motor==3.7.1
 mpmath==1.3.0
 murmurhash==1.0.13
+mysql==0.0.3
+mysql-connector-python==9.4.0
+mysqlclient==2.2.7
 networkx==3.5
 numpy==2.3.2
 packaging==25.0
 pillow==11.3.0
 pluggy==1.6.0
 preshed==3.0.10
+protobuf==6.32.1
 psutil==7.0.0
 pycparser==2.22
 pydantic==2.11.7
@@ -59,11 +69,16 @@ pydantic_core==2.33.2
 Pygments==2.19.2
 PyJWT==2.10.1
 pymango==0.1.1
-pymongo==4.14.1
+pymongo==4.15.1
+pymongo-stubs==0.2.0
+PyMySQL==1.1.2
 pytest==8.4.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.1.1
+python-Levenshtein==0.27.1
+python-multipart==0.0.20
 pytz==2025.2
+pywin32==311
 PyYAML==6.0.2
 RapidFuzz==3.14.0
 redis==6.4.0
@@ -85,6 +100,7 @@ spacy==3.8.7
 spacy-curated-transformers==0.3.1
 spacy-legacy==3.0.12
 spacy-loggers==1.0.5
+SQLAlchemy==2.0.43
 srsly==2.5.1
 starlette==0.47.2
 sympy==1.14.0
