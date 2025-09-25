@@ -26,8 +26,8 @@ py -3 -m venv venv
 pip install -r requirements.txt
 
 # 3) Environment variables (example values)
-$env:JWT_SECRET="hiIamChamod"
-$env:ENCRYPTION_KEY="O3V3Qz0U3l6C4Ih1c3mJv0cNGXyP8yq5"  # 32-char urlsafe Fernet key
+$env:JWT_SECRET="YOUR_JWT_SECRET"
+$env:ENCRYPTION_KEY="YOUR_ENCRYPTION_KEY"  # 32-char urlsafe Fernet key
 $env:COURTLISTENER_API_KEY="YOUR_COURTLISTENER_TOKEN"
 
 # 4) Start services (each in a terminal) OR use the helper
