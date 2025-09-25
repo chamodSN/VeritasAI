@@ -58,3 +58,11 @@ class SummaryRequest(BaseModel):
 
 class SummaryResponse(BaseModel):
     summary: Dict[str, Any]
+
+class CitationRequest(BaseModel):
+    case_id: str
+    case_text: Optional[str] = None
+
+
+class CitationResponse(BaseModel):
+    citations: List[str]
