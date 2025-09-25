@@ -1,6 +1,6 @@
 import re
 import unicodedata
-from datetime import datetime, timedelta, date
+from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
 import dateparser
 
@@ -12,26 +12,22 @@ RELATIVE_PATTERNS = [
     (re.compile(r"last\s+(\d+)\s+months?", re.I),
      lambda n: (date.today() - relativedelta(months=int(n)), date.today())),
     (re.compile(r"last\s+year", re.I), lambda _: (date(date.today().year -
-     1, 1, 1), date(date.today().year-1, 12, 31))),
+     1, 1, 1), date(date.today().year - 1, 12, 31))),
     (re.compile(r"this\s+year", re.I),
      lambda _: (date(date.today().year, 1, 1), date.today())),
-    (re.compile(r"past\s+year", re.I),
-     lambda _: (date.today()-relativedelta(years=1), date.today())),
 ]
 
 QTR_PATTERN = re.compile(r"Q([1-4])\s*(\d{4})", re.I)
 
 
 def normalize_text(text: str) -> str:
-    text = unicodedata.normalize("NFKC", text)
-    text = text.strip()
+    text = unicodedata.normalize("NFKC", text).strip()
     return text
 
 
 def parse_dates_smart(text: str):
     if not text:
         return None, None
-
     t = normalize_text(text)
 
     m = QTR_PATTERN.search(t)
@@ -40,7 +36,7 @@ def parse_dates_smart(text: str):
         y = int(m.group(2))
         start_month = {1: 1, 2: 4, 3: 7, 4: 10}[q]
         start = date(y, start_month, 1)
-        end = (start + relativedelta(months=3)) - timedelta(days=1)
+        end = (start + relativedelta(months=3)) - relativedelta(days=1)
         return start.isoformat(), end.isoformat()
 
     for pat, fn in RELATIVE_PATTERNS:
@@ -60,30 +56,19 @@ def parse_dates_smart(text: str):
             a, b = sorted([d1.date(), d2.date()])
             return a.isoformat(), b.isoformat()
 
-    after = re.search(r"\b(after|since)\s+(.+)$", t, flags=re.I)
-    if after:
-        d = dateparser.parse(after.group(2), settings={
-                             'PREFER_DATES_FROM': 'past'})
-        if d:
-            return d.date().isoformat(), None
-
-    before = re.search(r"\b(before|until|till)\s+(.+)$", t, flags=re.I)
-    if before:
-        d = dateparser.parse(before.group(2), settings={
-                             'PREFER_DATES_FROM': 'past'})
-        if d:
-            return None, d.date().isoformat()
+    yr_rng = re.search(r"\b(\d{4})\s*(?:to|\-|\u2013|\u2014)\s*(\d{4})\b", t)
+    if yr_rng:
+        y1, y2 = sorted([int(yr_rng.group(1)), int(yr_rng.group(2))])
+        return date(y1, 1, 1).isoformat(), date(y2, 12, 31).isoformat()
 
     parsed_dates = []
-    for chunk in re.findall(r"\b([A-Za-z]{3,9} \d{1,2}, \d{4}|\d{1,2}/\d{1,2}/\d{2,4}|\d{4}-\d{1,2}-\d{1,2}|[A-Za-z]{3,9} \d{4}|\d{4})\b", t):
+    for chunk in re.findall(r"\b([A-Za-z]{3,9} \d{1,2}, \d{4}|\d{1,2}/\d{1,2}/\d{2,4}|\d{4}-\d{1,2}-\d{1,2}|[A-Za-z]{3,9} \d{4})\b", t):
         dt = dateparser.parse(chunk, settings={'PREFER_DATES_FROM': 'past'})
         if dt:
             parsed_dates.append(dt.date())
 
     if parsed_dates:
         parsed_dates.sort()
-        start = parsed_dates[0]
-        end = parsed_dates[-1] if len(parsed_dates) > 1 else None
-        return start.isoformat(), end.isoformat() if end else None
+        return parsed_dates[0].isoformat(), parsed_dates[-1].isoformat()
 
     return None, None
