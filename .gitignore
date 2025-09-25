@@ -58,3 +58,10 @@ coverage.xml
 # ---- Environment Variables ----
 .env
 *.env
+models
+pre_download_models.py
+start_services.py
+test_frontend.py
+test_atlas.py
+tests/test_system.py
+test_system.py

@@ -1,19 +1,19 @@
-# case_finder/ir.py (Updated to handle court parameter in search)
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
-import httpx
-from sentence_transformers import SentenceTransformer
-import faiss
-import numpy as np
-from typing import List, Dict, Any
-from common.security import verify_token
-from common.logging import logger
-from common.models import SearchRequest, SearchResponse
+from common.responsible_ai import responsible_ai
+from common.courtlistener_api import courtlistener_api
 from common.config import Config
+from common.models import SearchRequest, SearchResponse, Case
+from common.logging import logger
+from common.security import verify_token
+import numpy as np
+import httpx
+import re
+from sentence_transformers import SentenceTransformer
+from typing import Dict, Any, List
+from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException
 
 router = APIRouter()
-model = SentenceTransformer('all-MiniLM-L6-v2',
-                            device='cpu')
+embed_model = SentenceTransformer('all-MiniLM-L6-v2')
 
 
 class SearchRequestExtended(SearchRequest):
@@ -23,79 +23,97 @@ class SearchRequestExtended(SearchRequest):
 @router.post("/search", response_model=SearchResponse)
 async def search_cases(request: SearchRequestExtended, token: dict = Depends(verify_token)):
     try:
-        query_terms: List[str] = []
-        for token in filter(None, (request.case_type or '').split() + (request.topic or '').split()):
-            term = token
-            if len(term) >= 2:
-                if len(term) < 5:
-                    qt = f"{term}*"
-                else:
-                    qt = f"{term}~"
-                query_terms.append(qt)
-        query = " AND ".join(query_terms) if query_terms else (
-            request.raw_query or "")
+        if request.num_results > Config.MAX_RESULTS_PER_QUERY:
+            request.num_results = Config.MAX_RESULTS_PER_QUERY
+            logger.warning(
+                f"RA Check: Limited results to {Config.MAX_RESULTS_PER_QUERY}")
 
-        params: Dict[str, Any] = {"q": query, "type": "o"}
-        if request.date_from:
-            params["date_filed_min"] = request.date_from
-        if request.date_to:
-            params["date_filed_max"] = request.date_to
-        if request.court:
-            params["court"] = request.court
+        def sanitize_query_text(text: str) -> str:
+            if not text:
+                return ""
+            cleaned = re.sub(r"[^\w\s.,!?]", " ", text)
+            cleaned = re.sub(r"\s+", " ", cleaned).strip()[:150]
+            return cleaned
 
-        async with httpx.AsyncClient(timeout=30) as client:
-            r = await client.get(
-                f"{Config.COURTLISTENER_BASE_URL}search/",
-                params=params,
-                headers={
-                    "Authorization": f"Token {Config.COURTLISTENER_API_KEY}"} if Config.COURTLISTENER_API_KEY else None,
+        query_parts = [sanitize_query_text(request.raw_query or "")]
+        if request.topic and request.topic != "unknown":
+            query_parts.append(request.topic)
+        if request.case_type and request.case_type != "unknown":
+            query_parts.append(request.case_type)
+
+        search_query = " ".join(filter(None, query_parts)) or "legal cases"
+
+        try:
+            search_results = await courtlistener_api.search_cases(
+                query=search_query,
+                court=request.court or "",
+                date_from=request.date_from,
+                date_to=request.date_to,
+                page_size=request.num_results
             )
-            r.raise_for_status()
-            cases: List[Dict[str, Any]] = r.json().get("results", [])
-            logger.info(f"Fetched {len(cases)} cases from CourtListener")
+            logger.info(f"CourtListener raw response: {search_results}")
+        except Exception as e:
+            logger.warning(
+                f"Primary search failed: {e}. Retrying with simplified query.")
+            simplified_query = request.topic or "legal cases"
+            search_results = await courtlistener_api.search_cases(
+                query=simplified_query,
+                court="",
+                date_from=request.date_from,
+                date_to=request.date_to,
+                page_size=request.num_results
+            )
+            logger.info(f"CourtListener simplified response: {search_results}")
 
-        if not cases:
+        candidates = search_results.get("results", [])
+        logger.info(f"CourtListener returned {len(candidates)} candidates")
+
+        if not candidates:
             return SearchResponse(case_ids=[], hit_count=0, cases=[])
 
-        dim = 384
-        index = faiss.IndexFlatL2(dim)
-        texts, case_ids = [], []
-        for c in cases:
-            opinions = c.get('opinions', [])
-            snippet = opinions[0].get('snippet', '') if opinions else ''
-            text = f"{c.get('caseName', '')} {snippet}".strip()
-            texts.append(text)
-            case_ids.append(str(c.get("cluster_id")))
+        qtext = f"{request.topic or ''} {request.raw_query or ''}".strip()
+        query_embedding = embed_model.encode([qtext])[0]
 
-        if texts:
-            X = model.encode(texts)
-            X = np.array(X)
-            X /= np.linalg.norm(X, axis=1, keepdims=True)
-            X = X.astype('float32')
-            index.add(X)
-            qtext = f"{request.case_type} {request.topic}".strip() or (
-                request.raw_query or "")
-            Q = model.encode([qtext])
-            Q = np.array(Q)
-            Q /= np.linalg.norm(Q, axis=1, keepdims=True)
-            Q = Q.astype('float32')
-            k = min(request.num_results, len(texts))
-            _, I = index.search(Q, k)
-            reranked_ids = [case_ids[i] for i in I[0]]
-            reranked_cases = [c for c in cases if str(
-                c.get("cluster_id")) in reranked_ids]
-        else:
-            reranked_ids = case_ids
-            reranked_cases = cases
+        candidate_texts = [
+            f"{c.get('caseName', c.get('name', ''))} {c.get('text', '')} {c.get('snippet', '')}" for c in candidates]
+        candidate_embeddings = embed_model.encode(candidate_texts)
 
-        logger.info(f"Returning {len(reranked_ids)} case IDs")
-        return SearchResponse(case_ids=reranked_ids, hit_count=len(reranked_ids), cases=reranked_cases)
+        similarities = [
+            (i, np.dot(query_embedding, emb) /
+             (np.linalg.norm(query_embedding) * np.linalg.norm(emb)))
+            for i, emb in enumerate(candidate_embeddings)
+        ]
+        similarities.sort(key=lambda x: x[1], reverse=True)
+        top_k = min(request.num_results, len(candidates))
+        reranked_candidates = [candidates[i] for i, _ in similarities[:top_k]]
 
-    except httpx.HTTPStatusError as he:
-        logger.error(
-            f"CourtListener error: {he.response.status_code} {he.response.text}")
-        raise HTTPException(status_code=he.response.status_code,
-                            detail="Upstream API error")
+        case_ids = [str(c.get("id", c.get("cluster_id", "")))
+                    for c in reranked_candidates]
+        cases = [
+            Case(
+                case_id=str(c.get("id", c.get("cluster_id", ""))),
+                title=c.get("caseName", c.get("name", "")),
+                court=c.get("court_citation_string",
+                            c.get("court_name", None)),
+                decision=c.get("disposition", c.get("status", None)),
+                docket_id=c.get("docketNumber", c.get("docket_number", None))
+            ).dict()
+            for c in reranked_candidates
+        ]
+
+        diversity_check = await responsible_ai.check_result_diversity(cases)
+        relevance_check = await responsible_ai.check_result_relevance(qtext, cases)
+
+        if not diversity_check.get("is_diverse", True):
+            logger.warning(
+                f"RA Check: Low diversity - {diversity_check.get('recommendations', [])}")
+        if not relevance_check.get("is_relevant", True):
+            logger.warning(
+                f"RA Check: Low relevance - avg_relevance: {relevance_check.get('relevance_score', 0)}")
+
+        logger.info(f"Returning {len(case_ids)} case IDs")
+        return SearchResponse(case_ids=case_ids, hit_count=len(case_ids), cases=cases)
+
     except Exception as e:
         logger.error(f"Error retrieving cases: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -103,14 +121,12 @@ async def search_cases(request: SearchRequestExtended, token: dict = Depends(ver
 
 @router.get("/cases/{cluster_id}")
 async def get_case_by_id(cluster_id: str, token: dict = Depends(verify_token)) -> Dict[str, Any]:
-    async with httpx.AsyncClient(timeout=20) as client:
-        r = await client.get(
-            f"{Config.COURTLISTENER_BASE_URL}clusters/{cluster_id}/",
-            headers={
-                "Authorization": f"Token {Config.COURTLISTENER_API_KEY}"} if Config.COURTLISTENER_API_KEY else None,
-        )
-        if r.status_code != 200:
-            raise HTTPException(status_code=r.status_code,
-                                detail="Case not found")
-        data = r.json()
-        return data
+    try:
+        case_details = await courtlistener_api.get_case_details(cluster_id)
+        if not case_details:
+            raise HTTPException(status_code=404, detail="Case not found")
+        logger.info(f"Case details for {cluster_id}: {case_details}")
+        return case_details
+    except Exception as e:
+        logger.error(f"Error fetching case {cluster_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))

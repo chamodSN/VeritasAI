@@ -1,4 +1,3 @@
-# common/security.py
 import jwt
 from fastapi import HTTPException, Depends
 from fastapi.security import APIKeyHeader
@@ -7,13 +6,18 @@ import os
 from cryptography.fernet import Fernet
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from datetime import datetime, timezone
 
 load_dotenv()
 
 JWT_SECRET = os.getenv("JWT_SECRET")
 if not JWT_SECRET:
     raise ValueError("JWT_SECRET is not set in environment variables")
+
 ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
+if not ENCRYPTION_KEY:
+    raise ValueError("ENCRYPTION_KEY is not set in environment variables")
+
 fernet = Fernet(ENCRYPTION_KEY.encode())
 limiter = Limiter(key_func=get_remote_address)
 api_key_header = APIKeyHeader(name="Authorization")
@@ -26,10 +30,14 @@ def verify_token(token: str = Depends(api_key_header)) -> dict:
     raw_jwt = token.split(" ")[1]
     try:
         claims = jwt.decode(raw_jwt, JWT_SECRET, algorithms=["HS256"])
-        claims['raw_jwt'] = raw_jwt  # Store raw token for downstream use
-        return claims
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token has expired")
+        exp = claims.get("exp")
+        if exp and datetime.now(timezone.utc).timestamp() > exp:
+            raise HTTPException(status_code=401, detail="Token has expired")
+        if not claims.get("sub"):
+            raise HTTPException(
+                status_code=401, detail="Invalid token: missing sub claim")
+        # Consistent return format
+        return {"token": raw_jwt, "sub": claims["sub"]}
     except jwt.InvalidTokenError as e:
         raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
 
