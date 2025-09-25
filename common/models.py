@@ -2,6 +2,14 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 
 
+class QueryRequest(BaseModel):
+    query: str = Field(..., description="The user's search query")
+    page: Optional[int] = Field(
+        default=1, description="Page number for pagination")
+    per_page: Optional[int] = Field(
+        default=5, description="Number of results per page")
+
+
 class SearchRequest(BaseModel):
     case_type: str = Field("unknown", description="Detected case type")
     topic: str = Field("unknown", description="Detected legal topic")
@@ -19,10 +27,6 @@ class SearchResponse(BaseModel):
     case_ids: List[str] = Field(default_factory=list)
     hit_count: int = 0
     cases: List[Dict[str, Any]] = Field(default_factory=list)
-
-
-class QueryRequest(BaseModel):
-    query: str
 
 
 class Case(BaseModel):
