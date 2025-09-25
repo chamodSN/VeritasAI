@@ -47,6 +47,7 @@ class QueryResponse(BaseModel):
 class PrecedentRequest(BaseModel):
     case_id: str
     citations: List[str]
+    case_text: Optional[str] = None
 
 class PrecedentResponse(BaseModel):
     related_cases: List[Dict[str, Any]] = Field(default_factory=list)
