@@ -31,3 +31,4 @@ class Config:
         os.getenv("MIN_CONFIDENCE_THRESHOLD", "0.4"))
     ENABLE_BIAS_DETECTION = os.getenv(
         "ENABLE_BIAS_DETECTION", "true").lower() == "true"
+    SIMILARITY_THRESHOLD = 0.5  # Added for fixes

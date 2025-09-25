@@ -1,4 +1,3 @@
-# common/http.py (No changes necessary)
 """Common HTTP utilities for signing and verifying requests."""
 import time
 import json

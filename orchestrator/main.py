@@ -1,4 +1,3 @@
-# orchestrator/main.py (Fixed spelling from orcherestrator. No other changes necessary as IR updates are in case_finder. RA handled in sub-agents.)
 from fastapi import FastAPI, Depends, HTTPException
 import httpx
 from pydantic import BaseModel
@@ -6,7 +5,7 @@ from common.security import verify_token
 from common.logging import logger
 from common.models import QueryRequest, QueryResponse, SearchRequest, SearchResponse, SummaryRequest, CitationRequest, PrecedentRequest, Case
 from common.config import Config
-from common.db import MongoDB
+from common.courtlistener_api import courtlistener_api
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Legal Case Orchestrator")
@@ -24,6 +23,17 @@ async def filter_supreme_court_cases(cases: list[dict]) -> list[dict]:
     return [case for case in cases if case.get("court_id") == "scotus" or case.get("court_citation_string", "").lower().startswith("united states supreme court")]
 
 
+# Stub for MongoDB since no DB required
+class MongoDB:
+    @staticmethod
+    async def get_query_result(user_id: str, query: str) -> dict:
+        return None  # No cache
+
+    @staticmethod
+    async def cache_query_result(user_id: str, query: str, result: dict):
+        pass  # No-op
+
+
 @app.post("/query", response_model=QueryResponse)
 async def process_query(request: QueryRequest, token: dict = Depends(verify_token)):
     try:
@@ -32,18 +42,18 @@ async def process_query(request: QueryRequest, token: dict = Depends(verify_toke
         logger.info(f"Processing query for user {user_id}: {query}")
         logger.debug(f"Received token claims: {token}")
 
-        # Check cache
+        # Check cache (no-op)
         cached = await MongoDB.get_query_result(user_id, query)
         if cached:
             logger.info(f"Returning cached result for query: {query}")
             return QueryResponse(cases=cached["results"]["cases"])
 
         # Use the raw JWT token for downstream requests
-        if 'raw_jwt' not in token:
+        if 'token' not in token:
             logger.error("No raw_jwt in token claims")
             raise HTTPException(
                 status_code=500, detail="Internal token processing error")
-        auth_header = {"Authorization": f"Bearer {token['raw_jwt']}"}
+        auth_header = {"Authorization": f"Bearer {token['token']}"}
 
         # Step 1: Parse query via case_finder
         async with httpx.AsyncClient(timeout=30) as client:
@@ -52,7 +62,8 @@ async def process_query(request: QueryRequest, token: dict = Depends(verify_toke
             try:
                 parse_res = await client.post(
                     f"{Config.CASE_FINDER_URL}/parse_query",
-                    json={"query": query},
+                    # Pass raw_query correctly
+                    json=SearchRequest(raw_query=query).dict(),
                     headers=auth_header
                 )
                 parse_res.raise_for_status()
@@ -67,11 +78,10 @@ async def process_query(request: QueryRequest, token: dict = Depends(verify_toke
                 raise HTTPException(
                     status_code=500, detail=f"Case Finder connection error: {str(e)}")
             search_req_data = parse_res.json()
-            search_req_data['court'] = "scotus"
             search_req = SearchRequest(**search_req_data)
             logger.debug(f"Parsed query: {search_req.dict()}")
 
-            # Step 2: Search cases with Supreme Court filter
+            # Step 2: Search cases (Supreme Court filter optional)
             search_req_extended = {"num_results": 5, **search_req.dict()}
             logger.debug(f"Sending search request: {search_req_extended}")
             try:
@@ -94,94 +104,152 @@ async def process_query(request: QueryRequest, token: dict = Depends(verify_toke
             search_response = SearchResponse(**search_res.json())
             logger.debug(f"Search response: {search_response.dict()}")
 
-            # Filter for Supreme Court cases
-            search_response.cases = await filter_supreme_court_cases(search_response.cases)
+            # No forced Supreme Court filtering; keep results general across courts
             if not search_response.cases:
-                logger.warning("No Supreme Court cases found")
-                return QueryResponse(cases=[])
+                logger.warning("No cases found")
+                return QueryResponse(
+                    cases=[],
+                    case_type=search_req.case_type,
+                    topic=search_req.topic,
+                    date_from=search_req.date_from,
+                    date_to=search_req.date_to
+                )
 
             cases = []
             for case_data in search_response.cases:
-                case_id = str(case_data.get("cluster_id"))
-                case_name = case_data.get("caseName", "Unknown")
+                # Accept ids from raw CourtListener or curated Case objects
+                case_id = str(
+                    case_data.get("cluster_id")
+                    or case_data.get("id")
+                    or case_data.get("case_id")
+                    or ""
+                )
+                if not case_id or case_id == "None":
+                    logger.warning(f"Skipping invalid case_id: {case_id}")
+                    continue
+
+                case_name = case_data.get("caseName") or case_data.get("title") or "Unknown"
                 court = case_data.get(
                     "court_citation_string", "United States Supreme Court")
 
-                # Step 3: Summarize
+                # Fetch full case text first; skip cases without enough text
+                logger.debug(f"Fetching case text for case: {case_id}")
+                try:
+                    case_text = await courtlistener_api.get_case_text(case_id)
+                except Exception as _e:
+                    case_text = ""
+                if not case_text or len(case_text) < 400:
+                    logger.warning(f"Skipping case {case_id} due to insufficient text length: {len(case_text)}")
+                    continue
+
+                # Step 3: Summarize (use provided case_text)
                 logger.debug(f"Summarizing case: {case_id}")
+                summary = {"issue": "Summary error"}
                 try:
                     summary_res = await client.post(
                         f"{Config.SUMMARY_URL}/summarize",
                         json=SummaryRequest(
-                            case_id=case_id, case_data=case_data).dict(),
+                            case_id=case_id, case_data=case_data, case_text=case_text).dict(),
                         headers=auth_header
                     )
                     summary_res.raise_for_status()
+                    summary = summary_res.json().get("summary", summary)
                 except httpx.HTTPStatusError as e:
                     logger.error(
                         f"Summary HTTP error: {e.response.status_code} - {e.response.text}", exc_info=True)
-                    raise HTTPException(
-                        status_code=500, detail=f"Summary error: {e.response.status_code} - {e.response.text}")
-                summary = summary_res.json()["summary"]
+                except Exception as e:
+                    logger.error(
+                        f"Summary error: {str(e)}", exc_info=True)
+                # Ensure decision is available before any fallback construction
                 decision = summary.get("decision", "Unknown")
 
-                # Step 4: Extract citations
+                if summary.get("issue") == "Summary error":
+                    # Build a graceful fallback summary from the case_text
+                    import re
+                    cleaned = re.sub(r"<.*?>", " ", case_text)
+                    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+                    sentences = re.split(r'(?:\.|\?|!)\s+', cleaned)
+                    fallback = " ".join(sentences[:5])
+                    if len(fallback) > 800:
+                        fallback = fallback[:780] + "..."
+                    summary = {
+                        "case": case_name,
+                        "court": court,
+                        "issue": fallback or "Summary unavailable.",
+                        "decision": decision,
+                        "entities": {"persons": [], "organizations": [], "locations": [], "legal_terms": []}
+                    }
+
+                # Refresh decision from possibly updated summary
+                decision = summary.get("decision", "Unknown")
+
+                # Step 4: Extract citations (use same case_text)
                 logger.debug(f"Extracting citations for case: {case_id}")
                 try:
                     citation_res = await client.post(
                         f"{Config.CITATION_URL}/extract_citations",
-                        json=CitationRequest(
-                            case_id=case_id, case_data=case_data).dict(),
+                        json=CitationRequest(case_id=case_id, case_text=case_text).dict(),
                         headers=auth_header
                     )
                     citation_res.raise_for_status()
+                    citations = citation_res.json().get("citations", [])
                 except httpx.HTTPStatusError as e:
                     logger.error(
                         f"Citation HTTP error: {e.response.status_code} - {e.response.text}", exc_info=True)
-                    raise HTTPException(
-                        status_code=500, detail=f"Citation error: {e.response.status_code} - {e.response.text}")
-                citations = citation_res.json()["citations"]
+                except Exception as e:
+                    logger.error(
+                        f"Citation service error: {str(e)}", exc_info=True)
+                    citations = []
 
                 # Step 5: Find precedents
                 logger.debug(f"Finding precedents for case: {case_id}")
                 try:
                     precedent_res = await client.post(
                         f"{Config.PRECEDENT_URL}/find_precedents",
-                        json=PrecedentRequest(
-                            case_id=case_id, citations=citations).dict(),
+                        json=PrecedentRequest(case_id=case_id, citations=citations).dict(),
                         headers=auth_header
                     )
                     precedent_res.raise_for_status()
+                    related_precedents_raw = precedent_res.json().get("related_cases", [])
                 except httpx.HTTPStatusError as e:
                     logger.error(
                         f"Precedent HTTP error: {e.response.status_code} - {e.response.text}", exc_info=True)
-                    raise HTTPException(
-                        status_code=500, detail=f"Precedent error: {e.response.status_code} - {e.response.text}")
+                except Exception as e:
+                    logger.error(
+                        f"Precedent service error: {str(e)}", exc_info=True)
+                    related_precedents_raw = []
+
                 related_precedents = [
-                    prec for prec in precedent_res.json()["related_cases"]
-                    if prec.get("date_filed", "") <= "2025-12-31"
+                    prec for prec in related_precedents_raw
+                    if prec.get("date", "") <= "2025-12-31"
                 ]
 
                 cases.append(Case(
                     case_id=case_id,
-                    case_name=case_name,
+                    title=case_name,
                     court=court,
                     decision=decision,
+                    docket_id=case_data.get("docketNumber", None),
+                    date=case_data.get("dateFiled", None),
                     summary=summary,
-                    citations=citations,
+                    legal_citations=citations,
+                    citations_count=len(citations),
                     related_precedents=related_precedents
                 ))
 
-            response = QueryResponse(cases=cases)
-            await MongoDB.store_query_result(user_id, query, response.dict())
-            logger.info(
-                f"Query processed successfully: {len(cases)} cases returned")
-            return response
+            # Cache the results (no-op)
+            await MongoDB.cache_query_result(user_id, query, {
+                "results": {"cases": [case.dict() for case in cases]}
+            })
 
-    except httpx.HTTPStatusError as e:
-        logger.error(
-            f"HTTP error during query processing: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=e.response.status_code, detail=str(e))
+            logger.info(f"Processed query successfully: {query}")
+            return QueryResponse(
+                cases=cases,
+                case_type=search_req.case_type,
+                topic=search_req.topic,
+                date_from=search_req.date_from,
+                date_to=search_req.date_to
+            )
     except Exception as e:
         logger.error(f"Error processing query: {str(e)}", exc_info=True)
         raise HTTPException(

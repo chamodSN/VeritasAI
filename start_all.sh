@@ -15,7 +15,7 @@ uvicorn agents.citation.citation:app --port 8003 --reload --log-level info &
 PID3=$!
 
 # Precedent (port 8004)
-uvicorn agents.precedent.main:app --port 8004 --reload --log-level info &
+uvicorn agents.percedent.main:app --port 8004 --reload --log-level info &
 PID4=$!
 
 # Orchestrator (port 8000)

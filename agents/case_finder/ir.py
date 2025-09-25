@@ -8,6 +8,7 @@ import numpy as np
 import httpx
 import re
 from sentence_transformers import SentenceTransformer
+from sentence_transformers.util import cos_sim
 from typing import Dict, Any, List
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException
@@ -79,16 +80,51 @@ async def search_cases(request: SearchRequestExtended, token: dict = Depends(ver
         candidate_embeddings = embed_model.encode(candidate_texts)
 
         similarities = [
-            (i, np.dot(query_embedding, emb) /
-             (np.linalg.norm(query_embedding) * np.linalg.norm(emb)))
+            (i, cos_sim(query_embedding, emb)[0][0].item())
             for i, emb in enumerate(candidate_embeddings)
         ]
         similarities.sort(key=lambda x: x[1], reverse=True)
         top_k = min(request.num_results, len(candidates))
         reranked_candidates = [candidates[i] for i, _ in similarities[:top_k]]
 
+        # Enhanced filtering: Prioritize by similarity and (optionally) date range
+        from datetime import datetime
+        filtered_candidates = []
+        for idx, candidate in enumerate(reranked_candidates):
+            date_filed_str = candidate.get('dateFiled') or candidate.get('date_filed') or ''
+            similarity = similarities[idx][1]
+
+            # Base similarity threshold
+            if similarity < max(0.4, getattr(Config, 'SIMILARITY_THRESHOLD', 0.4)):
+                continue
+
+            # Optional date range filtering when provided
+            passes_date = True
+            try:
+                if request.date_from or request.date_to:
+                    if date_filed_str:
+                        case_date = datetime.strptime(date_filed_str[:10], '%Y-%m-%d')
+                        if request.date_from:
+                            df = datetime.strptime(request.date_from[:10], '%Y-%m-%d')
+                            if case_date < df:
+                                passes_date = False
+                        if request.date_to and passes_date:
+                            dt = datetime.strptime(request.date_to[:10], '%Y-%m-%d')
+                            if case_date > dt:
+                                passes_date = False
+                    # If case has no date, keep it rather than drop silently
+            except Exception:
+                # If date parsing fails, keep the candidate
+                passes_date = True
+
+            if passes_date:
+                filtered_candidates.append(candidate)
+
+        if not filtered_candidates:
+            filtered_candidates = reranked_candidates  # Fallback when overly strict
+
         case_ids = [str(c.get("id", c.get("cluster_id", "")))
-                    for c in reranked_candidates]
+                    for c in filtered_candidates]
         cases = [
             Case(
                 case_id=str(c.get("id", c.get("cluster_id", ""))),
@@ -98,7 +134,7 @@ async def search_cases(request: SearchRequestExtended, token: dict = Depends(ver
                 decision=c.get("disposition", c.get("status", None)),
                 docket_id=c.get("docketNumber", c.get("docket_number", None))
             ).dict()
-            for c in reranked_candidates
+            for c in filtered_candidates
         ]
 
         diversity_check = await responsible_ai.check_result_diversity(cases)

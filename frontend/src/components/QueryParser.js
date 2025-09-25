@@ -14,7 +14,7 @@ export default function QueryParser() {
   const [error, setError] = useState("");
 
   const API_URL = "http://localhost:8000/query";
-  const TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjaGFtb2QiLCJleHAiOjE3NTg3ODIwNDR9.rkapnVeYt1twN_J7y8NKty5u96p1XudcQnCd5_vm-Tc";
+  const TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjaGFtb2QiLCJleHAiOjE3NTg4MDM1NzB9.UH66qdpAbowzkc4sGWMjcfTAAIDL6o1KEjbqm1LXsrE";
 
   const handleSubmit = async (e) => {
     e.preventDefault();

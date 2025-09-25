@@ -1,4 +1,6 @@
 from fastapi.middleware.cors import CORSMiddleware
+import sys
+import asyncio
 from common.courtlistener_api import courtlistener_api
 from common.models import SummaryRequest, SummaryResponse
 from common.config import Config
@@ -13,6 +15,13 @@ from pydantic import BaseModel
 from fastapi import FastAPI, Depends
 
 app = FastAPI(title="Case Summarization Agent")
+
+# Windows-specific workaround to reduce noisy ConnectionResetError logs
+if sys.platform.startswith("win"):
+    try:
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    except Exception:
+        pass
 
 app.add_middleware(
     CORSMiddleware,
@@ -66,18 +75,24 @@ def chunk_text(text: str, max_chars: int = 800) -> list[str]:
     return [chunk for chunk in chunks if len(chunk) > 30]
 
 
-async def summarize_chunk(chunk: str, max_length: int = 150, min_length: int = 80) -> str:
+async def summarize_chunk(chunk: str, max_length: int = 220, min_length: int = 120) -> str:
     if not summarizer:
         sentences = chunk.split('. ')
         return '. '.join(sentences[:2]) + '.' if len(sentences) > 1 else chunk[:150] + "..."
     try:
         input_length = len(tokenizer.encode(chunk, truncation=True))
-        adjusted_max_length = min(
-            max_length, input_length // 2) if input_length > 50 else input_length
-        # Ensure minimum length
-        adjusted_max_length = max(adjusted_max_length, 30)
+        # Dynamic sizing: aim for ~50-65% of input tokens, with safe bounds
+        target_max = max(50, int(input_length * 0.6))
+        adjusted_max_length = min(max_length, target_max, max(10, input_length - 5))
+        adjusted_max_length = max(adjusted_max_length, 40)
+        adjusted_min_length = min(
+            max(30, int(adjusted_max_length * 0.5)),
+            max(10, adjusted_max_length - 20)
+        )
+        if adjusted_min_length >= adjusted_max_length:
+            adjusted_min_length = max(20, adjusted_max_length // 2)
         result = summarizer(chunk, max_length=adjusted_max_length,
-                            min_length=min(adjusted_max_length // 2, min_length), do_sample=False)[0]["summary_text"]
+                            min_length=min(adjusted_max_length - 40, adjusted_min_length), do_sample=False)[0]["summary_text"]
         return result
     except Exception as e:
         logger.error(f"Error summarizing chunk: {str(e)}")
@@ -86,7 +101,7 @@ async def summarize_chunk(chunk: str, max_length: int = 150, min_length: int = 8
 
 
 def extract_case_name(text: str, case_data: dict) -> str:
-    for field in ["caseName", "case_name", "caseNameFull", "caseNameShort"]:
+    for field in ["caseName", "case_name", "caseNameFull", "caseNameShort", "title"]:
         if case_data.get(field):
             return case_data[field]
     match = re.search(
@@ -105,7 +120,7 @@ def extract_court(text: str, case_data: dict) -> str:
 
 
 def extract_decision(text: str, case_data: dict) -> str:
-    for field in ["disposition", "status"]:
+    for field in ["disposition", "status", "decision"]:
         if case_data.get(field):
             return case_data[field]
     # Search entire text for decision keywords
@@ -119,6 +134,8 @@ def extract_decision(text: str, case_data: dict) -> str:
 async def fetch_case_data(case_id: str) -> dict:
     try:
         case_details = await courtlistener_api.get_case_details(case_id)
+        if not case_details:
+            return {}
         cluster_data = case_details.get("cluster", {})
         opinions = case_details.get("opinions", [])
         opinion_data = opinions[0] if opinions else {}
@@ -195,7 +212,11 @@ async def summarize_case(request: SummaryRequest, token: dict = Depends(verify_t
             })
 
         entities = extract_legal_entities(case_text)
-        chunks = chunk_text(case_text)
+        # For shorter texts, summarize as a single chunk with dynamic length
+        if len(case_text) < 1200:
+            chunks = [case_text]
+        else:
+            chunks = chunk_text(case_text)
         if not chunks:
             logger.warning(f"No valid chunks for case_id {request.case_id}")
             fallback_summary = f"{case_name} in {court_name} addressed key legal issues with outcome {decision}."
@@ -207,13 +228,14 @@ async def summarize_case(request: SummaryRequest, token: dict = Depends(verify_t
                 "entities": entities
             })
 
-        # Limit to 3 chunks
-        summaries = await asyncio.gather(*(summarize_chunk(chunk) for chunk in chunks[:3]))
+        # Limit to 5 chunks for more detail (or 1 if text is short)
+        max_chunks = 1 if len(case_text) < 1200 else 5
+        summaries = await asyncio.gather(*(summarize_chunk(chunk) for chunk in chunks[:max_chunks]))
         final_summary = " ".join(summaries)
         words = final_summary.split()
-        if len(words) > 200:
-            final_summary = " ".join(words[:180]) + "..."
-        elif len(words) < 100:
+        if len(words) > 400:
+            final_summary = " ".join(words[:380]) + "..."
+        elif len(words) < 160:
             final_summary += f" The case, {case_name}, in {court_name}, resulted in a {decision.lower()} decision."
 
         response = SummaryResponse(summary={

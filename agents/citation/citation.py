@@ -43,7 +43,7 @@ def extract_citations_from_text(case_text: str) -> list[str]:
         return []
     case_text = re.sub(r'<[^>]+>', '', case_text)
     case_pattern = r"\b[A-Z][a-zA-Z']+(?:\s+[A-Z][a-zA-Z']+)?\s+v\.\s+[A-Z][a-zA-Z']+(?:\s+[A-Z][a-zA-Z']+)?\b"
-    reporter_pattern = r"\b\d+\s+[A-Z][a-zA-Z.]+\s+\d+(?:\s+$$ \d{4} $$)?\b"
+    reporter_pattern = r"\b\d+\s+[A-Z][A-Za-z.]+\s+\d+(?:\s*\(\d{4}\))?\b"
     statute_pattern = r"\b\d+\s+[A-Za-z.]+\s+§\s+\d+(?:\.\d+)?\b"
 
     regex_citations = []
