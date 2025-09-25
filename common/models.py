@@ -62,6 +62,7 @@ class PrecedentResponse(BaseModel):
 class SummaryRequest(BaseModel):
     case_id: str
     case_data: Optional[Dict[str, Any]] = None
+    case_text: Optional[str] = None
 
 
 class SummaryResponse(BaseModel):
