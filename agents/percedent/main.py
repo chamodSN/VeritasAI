@@ -142,4 +142,3 @@ async def find_precedents(request: PrecedentRequestExtended, token: dict = Depen
         logger.error(
             f"Error finding precedents for case {request.case_id}: {str(e)}")
         return PrecedentResponse(related_cases=[])
-

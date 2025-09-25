@@ -3,6 +3,7 @@ import asyncio
 from typing import List, Dict, Any, Tuple
 from transformers import pipeline
 from sentence_transformers import SentenceTransformer
+from sentence_transformers.util import cos_sim
 import numpy as np
 from common.config import Config
 from common.logging import logger
@@ -111,7 +112,7 @@ class ResponsibleAIService:
             for key, value in classifications.items():
                 if isinstance(value, tuple) and len(value) == 2:
                     label, score = value
-                    if score < Config.MIN_CONFIDENCE_THRESHOLD:
+                    if score < 0.5:  # Lowered threshold
                         confidence_issues.append(
                             f"Low confidence in {key}: {score}")
             is_confident = len(confidence_issues) == 0
@@ -121,28 +122,27 @@ class ResponsibleAIService:
             return {
                 "is_confident": is_confident,
                 "confidence_issues": confidence_issues,
-                "min_threshold": Config.MIN_CONFIDENCE_THRESHOLD
+                "min_threshold": 0.5  # Updated
             }
         except Exception as e:
             logger.error(f"Error in confidence checking: {str(e)}")
-            return {"is_confident": True, "confidence_issues": [], "min_threshold": Config.MIN_CONFIDENCE_THRESHOLD}
+            return {"is_confident": True, "confidence_issues": [], "min_threshold": 0.5}
 
     async def check_result_relevance(self, query: str, results: List[Dict[str, Any]]) -> Dict[str, Any]:
         if not self.embedding_model or not results:
             return {"is_relevant": True, "relevance_score": 1.0, "low_relevance_results": []}
         try:
-            query_embedding = self.embedding_model.encode([query])
+            query_embedding = self.embedding_model.encode([query])[0]
             low_relevance_results = []
             relevance_scores = []
             for i, result in enumerate(results):
                 result_text = f"{result.get('caseName', '')} {result.get('snippet', '')}"
-                result_embedding = self.embedding_model.encode([result_text])
-                similarity = np.dot(query_embedding[0], result_embedding[0]) / (
-                    np.linalg.norm(
-                        query_embedding[0]) * np.linalg.norm(result_embedding[0])
-                )
+                result_embedding = self.embedding_model.encode([result_text])[
+                    0]
+                similarity = cos_sim(query_embedding, result_embedding)[
+                    0][0].item()
                 relevance_scores.append(similarity)
-                if similarity < 0.4:
+                if similarity < 0.5:  # Lowered threshold
                     low_relevance_results.append({
                         "index": i,
                         "similarity": similarity,
@@ -150,7 +150,7 @@ class ResponsibleAIService:
                     })
             avg_relevance = np.mean(
                 relevance_scores) if relevance_scores else 0
-            is_relevant = avg_relevance > 0.4 and len(
+            is_relevant = avg_relevance > 0.5 and len(
                 low_relevance_results) < len(results) * 0.5
             if not is_relevant:
                 logger.warning(

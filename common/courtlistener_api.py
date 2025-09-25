@@ -31,7 +31,7 @@ class CourtListenerAPI:
         if court and court.strip():
             fielded_q += f" court_id:{court}"
         if date_from or date_to:
-            date_range = f"{date_from or '*'} TO {date_to or '*'}"
+            date_range = f"{date_from or ''} TO {date_to or ''}"
             fielded_q += f" dateFiled:[{date_range}]"
         if case_type and case_type != "unknown":
             fielded_q += f" {case_type}"
@@ -91,6 +91,9 @@ class CourtListenerAPI:
                     "cluster": cluster_data,
                     "opinions": opinions_data.get("results", [])
                 }
+            except httpx.HTTPStatusError as e:
+                logger.error(f"HTTP error fetching case {case_id}: {str(e)}")
+                return {}
             except Exception as e:
                 logger.error(f"Error fetching case {case_id}: {str(e)}")
                 return {}
@@ -119,6 +122,10 @@ class CourtListenerAPI:
                     logger.info(
                         f"Extracted text for case {case_id}: {len(text)} characters")
                     return text
+                return ""
+            except httpx.HTTPStatusError as e:
+                logger.error(
+                    f"HTTP error fetching text for case {case_id}: {str(e)}")
                 return ""
             except Exception as e:
                 logger.error(
