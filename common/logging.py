@@ -1,5 +1,7 @@
+# common/logging.py (No changes necessary, but used for RA logging)
 import logging
 import os
+
 
 def setup_logger():
     logger = logging.getLogger("LegalCaseResearcher")
@@ -9,5 +11,6 @@ def setup_logger():
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     return logger
+
 
 logger = setup_logger()
