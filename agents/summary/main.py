@@ -1,103 +1,92 @@
-# summary/main.py
-from fastapi import FastAPI, Depends, HTTPException
-from pydantic import BaseModel
-from transformers import pipeline, AutoTokenizer
-import httpx
-import re
-import asyncio
-import torch
-import logging
-from common.security import verify_token
-from common.logging import logger
-from common.config import Config
-from common.models import SummaryRequest, SummaryResponse
 from fastapi.middleware.cors import CORSMiddleware
-
-logging.getLogger("transformers").setLevel(logging.ERROR)
+from common.courtlistener_api import courtlistener_api
+from common.models import SummaryRequest, SummaryResponse
+from common.config import Config
+from common.logging import logger
+from common.security import verify_token
+import spacy
+import asyncio
+import re
+import httpx
+from transformers import pipeline, AutoTokenizer
+from pydantic import BaseModel
+from fastapi import FastAPI, Depends
 
 app = FastAPI(title="Case Summarization Agent")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],  # Allow all for testing
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 try:
-    model_name = "sshleifer/distilbart-cnn-6-6"
+    model_name = "facebook/bart-large-cnn"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     summarizer = pipeline(
         "summarization",
         model=model_name,
         tokenizer=tokenizer,
         device=-1,
-        torch_dtype=torch.float32
+        framework="pt"
     )
-    classifier = pipeline("zero-shot-classification",
-                          model="facebook/bart-large-mnli")
-    logger.info(
-        "Summarization model and zero-shot classifier loaded successfully")
+    nlp = spacy.load("en_core_web_sm")
+    logger.info("Summarization and NER models loaded")
 except Exception as e:
-    logger.error(f"Failed to load Hugging Face model: {str(e)}")
-    raise Exception("Summarization model initialization failed")
+    logger.error(f"Failed to load models: {str(e)}")
+    summarizer = None
+    nlp = None
 
 
 def clean_case_text(text: str) -> str:
     text = re.sub(r"<.*?>", "", text)
     text = re.sub(r"\s+", " ", text).strip()
-    text = re.sub(r"[^\x00-\x7F]+", "", text)  # Remove non-ASCII characters
-    return text
+    text = re.sub(r"[^\x00-\x7F]+", "", text)
+    return text[:10000]  # Limit for performance
 
 
-def chunk_text(text: str, max_chars: int = 500) -> list[str]:
-    words = text.split()
+def chunk_text(text: str, max_chars: int = 800) -> list[str]:
+    sentences = re.split(r'(?<=[.!?])\s+', text)
     chunks = []
     current_chunk = []
     current_length = 0
-    for word in words:
-        current_chunk.append(word)
-        current_length += len(word) + 1
-        if current_length >= max_chars:
-            chunks.append(" ".join(current_chunk))
-            current_chunk = []
-            current_length = 0
+    for sentence in sentences:
+        if current_length + len(sentence) > max_chars:
+            if current_chunk:
+                chunks.append(" ".join(current_chunk))
+            current_chunk = [sentence]
+            current_length = len(sentence)
+        else:
+            current_chunk.append(sentence)
+            current_length += len(sentence)
     if current_chunk:
         chunks.append(" ".join(current_chunk))
-    return [chunk for chunk in chunks if len(chunk) > 50]
+    return [chunk for chunk in chunks if len(chunk) > 30]
 
 
-def get_token_count(text: str) -> int:
+async def summarize_chunk(chunk: str, max_length: int = 150, min_length: int = 80) -> str:
+    if not summarizer:
+        sentences = chunk.split('. ')
+        return '. '.join(sentences[:2]) + '.' if len(sentences) > 1 else chunk[:150] + "..."
     try:
-        tokens = tokenizer(text, truncation=False, return_tensors="pt")[
-            "input_ids"][0]
-        return len(tokens)
-    except Exception as e:
-        logger.error(f"Error counting tokens: {str(e)}")
-        return 0
-
-
-async def summarize_chunk(chunk: str, attempt: int = 1, max_attempts: int = 2) -> str:
-    try:
-        input_length = get_token_count(chunk)
-        max_length = max(25, min(input_length // 2, 150))
-        min_length = max(10, max_length // 4)
-        logger.debug(
-            f"Summarizing chunk: input_length={input_length}, max_length={max_length}, min_length={min_length}")
-        result = summarizer(chunk, max_length=max_length,
-                            min_length=min_length, do_sample=False)[0]["summary_text"]
+        input_length = len(tokenizer.encode(chunk, truncation=True))
+        adjusted_max_length = min(
+            max_length, input_length // 2) if input_length > 50 else input_length
+        # Ensure minimum length
+        adjusted_max_length = max(adjusted_max_length, 30)
+        result = summarizer(chunk, max_length=adjusted_max_length,
+                            min_length=min(adjusted_max_length // 2, min_length), do_sample=False)[0]["summary_text"]
         return result
     except Exception as e:
-        logger.error(f"Attempt {attempt} - Error summarizing chunk: {str(e)}")
-        if attempt < max_attempts:
-            await asyncio.sleep(0.5)
-            return await summarize_chunk(chunk, attempt + 1, max_attempts)
-        return ""
+        logger.error(f"Error summarizing chunk: {str(e)}")
+        sentences = chunk.split('. ')
+        return '. '.join(sentences[:2]) + '.' if len(sentences) > 1 else chunk[:150] + "..."
 
 
 def extract_case_name(text: str, case_data: dict) -> str:
-    for field in ["caseNameFull", "case_name", "caseName", "caseNameShort", "docketNumber"]:
+    for field in ["caseName", "case_name", "caseNameFull", "caseNameShort"]:
         if case_data.get(field):
             return case_data[field]
     match = re.search(
@@ -106,160 +95,145 @@ def extract_case_name(text: str, case_data: dict) -> str:
 
 
 def extract_court(text: str, case_data: dict) -> str:
-    court = case_data.get("court_citation_string", case_data.get(
-        "court", "United States Supreme Court"))
-    if court != "Unknown":
-        return court
+    for field in ["court_citation_string", "court_name", "court"]:
+        if case_data.get(field):
+            return case_data[field]
+    # Broader regex to capture court names
     match = re.search(
-        r"(Supreme Court|Court of Appeals|Circuit Court|District Court)[\w\s]*", text, re.IGNORECASE)
-    return match.group(1).capitalize() if match else "United States Supreme Court"
+        r"(Supreme Court|Court of Appeals|Circuit Court|District Court|Court of [\w\s]+|[\w\s]+Court)", text, re.IGNORECASE)
+    return match.group(1).capitalize() if match else "Unknown Court"
 
 
 def extract_decision(text: str, case_data: dict) -> str:
-    decision = case_data.get("disposition", case_data.get("status", "Unknown"))
-    if decision != "Unknown":
-        return decision
-    last_part = text[-1000:]
-    match = re.search(
-        r"(affirmed|reversed|remanded|dismissed|granted|denied)", last_part, re.IGNORECASE)
-    return match.group(1).capitalize() if match else "Unknown"
+    for field in ["disposition", "status"]:
+        if case_data.get(field):
+            return case_data[field]
+    # Search entire text for decision keywords
+    text_lower = text.lower()
+    for outcome in ["affirmed", "reversed", "remanded", "dismissed", "granted", "denied"]:
+        if outcome in text_lower:
+            return outcome.capitalize()
+    return "Unknown"
 
 
-async def fetch_case_data(case_id: str, client: httpx.AsyncClient) -> dict:
+async def fetch_case_data(case_id: str) -> dict:
     try:
-        response = await client.get(
-            f"{Config.COURTLISTENER_BASE_URL}opinions/?cluster={case_id}&fields=plain_text,html_lawbox,html_columbia,html,html_with_citations,caseName,caseNameFull,caseNameShort,disposition,court_citation_string,docketNumber,status",
-            headers={"Authorization": f"Token {Config.COURTLISTENER_API_KEY}"}
-        )
-        response.raise_for_status()
-        opinions = response.json().get("results", [])
-        data = opinions[0] if opinions else {}
-        cluster_response = await client.get(
-            f"{Config.COURTLISTENER_BASE_URL}clusters/{case_id}/?fields=case_name,case_name_short,disposition,court_name,docket_number,court_id",
-            headers={"Authorization": f"Token {Config.COURTLISTENER_API_KEY}"}
-        )
-        cluster_response.raise_for_status()
-        cluster_data = cluster_response.json()
-        data.update({
-            "caseName": cluster_data.get("case_name", data.get("caseName", "")),
-            "caseNameFull": cluster_data.get("case_name", data.get("caseNameFull", "")),
-            "caseNameShort": cluster_data.get("case_name_short", data.get("caseNameShort", "")),
-            "disposition": cluster_data.get("disposition", data.get("disposition", "")),
-            "court_citation_string": cluster_data.get("court_name", data.get("court_citation_string", "")),
-            "court_id": cluster_data.get("court_id", data.get("court_id", "")),
-            "docketNumber": cluster_data.get("docket_number", data.get("docketNumber", ""))
-        })
-        return data
-    except httpx.HTTPStatusError as e:
-        logger.error(
-            f"CourtListener API error for case_id {case_id}: {str(e)}")
-        return {}
+        case_details = await courtlistener_api.get_case_details(case_id)
+        cluster_data = case_details.get("cluster", {})
+        opinions = case_details.get("opinions", [])
+        opinion_data = opinions[0] if opinions else {}
+        return {
+            "caseName": cluster_data.get("case_name", opinion_data.get("caseName", "")),
+            "court_citation_string": cluster_data.get("court_name", opinion_data.get("court_citation_string", "")),
+            "disposition": cluster_data.get("disposition", opinion_data.get("disposition", "")),
+            "docketNumber": cluster_data.get("docket_number", opinion_data.get("docketNumber", "")),
+            "text": opinion_data.get("text", "") or opinion_data.get("html_lawbox", "") or opinion_data.get("html", "")
+        }
     except Exception as e:
-        logger.error(
-            f"Error fetching case data for case_id {case_id}: {str(e)}")
+        logger.error(f"Error fetching case data for {case_id}: {str(e)}")
         return {}
+
+
+def extract_legal_entities(text: str) -> dict:
+    if not nlp:
+        return {"persons": [], "organizations": [], "locations": [], "legal_terms": []}
+    doc = nlp(text[:5000])  # Limit for performance
+    entities = {"persons": [], "organizations": [],
+                "locations": [], "legal_terms": []}
+    for ent in doc.ents:
+        if ent.label_ == "PERSON":
+            entities["persons"].append(ent.text)
+        elif ent.label_ == "ORG":
+            entities["organizations"].append(ent.text)
+        elif ent.label_ == "GPE":
+            entities["locations"].append(ent.text)
+        elif ent.label_ in ["LAW", "EVENT"]:
+            entities["legal_terms"].append(ent.text)
+    return entities
 
 
 @app.post("/summarize", response_model=SummaryResponse)
 async def summarize_case(request: SummaryRequest, token: dict = Depends(verify_token)):
+    logger.info(f"Received summary request for case_id {request.case_id}")
     try:
         if not request.case_id or not request.case_id.isdigit():
-            logger.error(f"Invalid case_id: {request.case_id}")
-            raise HTTPException(
-                status_code=400, detail="Valid case_id required")
+            logger.warning(f"Invalid case_id {request.case_id}")
+            return SummaryResponse(summary={
+                "case": "Unknown",
+                "court": "Unknown",
+                "issue": "Invalid case ID provided.",
+                "decision": "Unknown",
+                "entities": {"persons": [], "organizations": [], "locations": [], "legal_terms": []}
+            })
 
-        async with httpx.AsyncClient(timeout=30) as client:
-            case_data = request.case_data or await fetch_case_data(request.case_id, client)
-            logger.debug(
-                f"Case data for case_id {request.case_id}: {case_data}")
-
-        if not isinstance(case_data, dict):
-            logger.error(
-                f"Invalid case_data format for case_id {request.case_id}")
-            raise HTTPException(
-                status_code=400, detail="Invalid case_data format")
+        case_data = request.case_data or await fetch_case_data(request.case_id)
+        if not case_data:
+            logger.warning(f"No case data for case_id {request.case_id}")
+            return SummaryResponse(summary={
+                "case": "Unknown",
+                "court": "Unknown",
+                "issue": "No case data found.",
+                "decision": "Unknown",
+                "entities": {"persons": [], "organizations": [], "locations": [], "legal_terms": []}
+            })
 
         case_name = extract_case_name("", case_data)
-        court_name = extract_court("", case_data)
-        decision = extract_decision("", case_data)
-
-        case_text = (
-            case_data.get("plain_text") or
-            case_data.get("html_lawbox") or
-            case_data.get("html_columbia") or
-            case_data.get("html") or
-            case_data.get("html_with_citations") or
-            ""
-        )
-        case_text = clean_case_text(case_text)
+        court_name = extract_court(case_data.get("text", ""), case_data)
+        decision = extract_decision(case_data.get("text", ""), case_data)
+        case_text = clean_case_text(
+            request.case_text or case_data.get("text", ""))
 
         if not case_text or len(case_text) < 50:
-            logger.warning(
-                f"No valid text for case_id {request.case_id}, using LLM fallback")
-            fallback_text = f"Generate a summary for case {case_name} in {court_name} involving cyber fraud."
-            summary_result = summarizer(fallback_text, max_length=100, min_length=30)[
-                0]["summary_text"]
+            logger.warning(f"Insufficient text for case_id {request.case_id}")
+            fallback_summary = f"{case_name} in {court_name} involved legal proceedings with outcome {decision}."
             return SummaryResponse(summary={
                 "case": case_name,
                 "court": court_name,
-                "issue": summary_result,
-                "decision": decision
+                "issue": fallback_summary,
+                "decision": decision,
+                "entities": {"persons": [], "organizations": [], "locations": [], "legal_terms": []}
             })
 
-        if case_name == "Unknown vs Unknown":
-            case_name = extract_case_name(case_text[:2000], case_data)
-        if court_name == "Unknown":
-            court_name = extract_court(case_text, case_data)
-        if decision == "Unknown":
-            result = classifier(case_text[-500:], candidate_labels=[
-                                "affirmed", "reversed", "remanded", "dismissed", "granted", "denied"])
-            decision = result['labels'][0].capitalize()
-
-        logger.debug(
-            f"Extracted: case_name={case_name}, court_name={court_name}, decision={decision}")
-
-        chunks = chunk_text(case_text, max_chars=500)
+        entities = extract_legal_entities(case_text)
+        chunks = chunk_text(case_text)
         if not chunks:
             logger.warning(f"No valid chunks for case_id {request.case_id}")
+            fallback_summary = f"{case_name} in {court_name} addressed key legal issues with outcome {decision}."
             return SummaryResponse(summary={
                 "case": case_name,
                 "court": court_name,
-                "issue": "No valid text chunks for summarization",
-                "decision": decision
+                "issue": fallback_summary,
+                "decision": decision,
+                "entities": entities
             })
 
-        summaries = []
-        for chunk in chunks:
-            summary = await summarize_chunk(chunk)
-            if summary:
-                summaries.append(summary)
-
-        if not summaries:
-            logger.warning(
-                f"No valid summaries generated for case_id {request.case_id}")
-            return SummaryResponse(summary={
-                "case": case_name,
-                "court": court_name,
-                "issue": "Failed to generate summary",
-                "decision": decision
-            })
-
+        # Limit to 3 chunks
+        summaries = await asyncio.gather(*(summarize_chunk(chunk) for chunk in chunks[:3]))
         final_summary = " ".join(summaries)
+        words = final_summary.split()
+        if len(words) > 200:
+            final_summary = " ".join(words[:180]) + "..."
+        elif len(words) < 100:
+            final_summary += f" The case, {case_name}, in {court_name}, resulted in a {decision.lower()} decision."
+
         response = SummaryResponse(summary={
             "case": case_name,
             "court": court_name,
             "issue": final_summary,
-            "decision": decision
+            "decision": decision,
+            "entities": entities
         })
 
         logger.info(
             f"Generated summary for case_id {request.case_id}: {case_name}")
         return response
 
-    except httpx.HTTPStatusError as e:
-        logger.error(
-            f"CourtListener API error for case_id {request.case_id}: {str(e)}")
-        raise HTTPException(status_code=e.response.status_code, detail=str(e))
     except Exception as e:
         logger.error(f"Error summarizing case_id {request.case_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Summary error: {str(e)}")
+        return SummaryResponse(summary={
+            "case": "Unknown",
+            "court": "Unknown",
+            "issue": "Error during summarization.",
+            "decision": "Unknown",
+            "entities": {"persons": [], "organizations": [], "locations": [], "legal_terms": []}
+        })
