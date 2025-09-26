@@ -14,7 +14,7 @@ export default function QueryParser() {
   const [error, setError] = useState("");
 
   const API_URL = "http://localhost:8000/query";
-  const TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjaGFtb2QiLCJleHAiOjE3NTg4MDM1NzB9.UH66qdpAbowzkc4sGWMjcfTAAIDL6o1KEjbqm1LXsrE";
+  const TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjaGFtb2QiLCJleHAiOjE3NTg4NjA0NTR9.3de5lytyPAYZl-fXhVDUL4XXkQgCgDHX17LlG-ZHaYI";
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -96,190 +96,257 @@ export default function QueryParser() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center bg-gray-100 py-10 px-4">
-      <div className="bg-white shadow-lg rounded-xl p-6 w-full max-w-3xl">
-        <h1 className="text-2xl font-bold mb-4 text-gray-800">
-          Legal Case Researcher
-        </h1>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-          <input
-            type="text"
-            placeholder="e.g. Show me Supreme Court cases about cyber fraud from 2020 to 2025"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
-          />
-          <button
-            type="submit"
-            disabled={loading}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg transition disabled:opacity-50"
-          >
-            {loading ? "Searching..." : "Search Cases"}
-          </button>
-        </form>
+    <div className="min-h-screen bg-legal-dark">
+      {/* Hero Section */}
+      <div className="bg-gradient-to-br from-legal-dark via-legal-blue to-legal-dark text-white py-16">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+          <h1 className="text-4xl md:text-5xl font-bold mb-6">
+            Advanced Legal Case Research
+          </h1>
+          <p className="text-xl text-gray-200 mb-8 max-w-2xl mx-auto">
+            Discover, analyze, and understand legal cases with AI-powered multi-agent research system
+          </p>
 
-        {error && <p className="text-red-500 text-sm mt-3">{error}</p>}
+          {/* Search Form */}
+          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 max-w-3xl mx-auto">
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="e.g., Supreme Court decisions on Fourth Amendment search and seizure after 2018"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  className="w-full px-6 py-4 text-gray-900 bg-white rounded-xl border-0 focus:outline-none focus:ring-4 focus:ring-accent-gold/30 text-lg placeholder-gray-500"
+                />
+                <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                  <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                </div>
+              </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-accent-gold hover:bg-yellow-500 text-legal-dark font-semibold px-8 py-4 rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed text-lg"
+              >
+                {loading ? (
+                  <div className="flex items-center justify-center space-x-2">
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-legal-dark"></div>
+                    <span>Searching Cases...</span>
+                  </div>
+                ) : (
+                  "Search Legal Cases"
+                )}
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 bg-legal-dark">
+        {error && (
+          <div className="bg-error-red/10 border border-error-red/20 text-error-red px-6 py-4 rounded-lg mb-6">
+            <div className="flex items-center space-x-2">
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+              <span className="font-medium">Error: {error}</span>
+            </div>
+          </div>
+        )}
 
         {result && (
-          <div className="mt-6 bg-gray-50 p-4 rounded-lg border border-gray-200">
-            <div className="mb-4 p-3 bg-blue-50 rounded-lg">
-              <h2 className="text-lg font-semibold text-blue-800">Search Results</h2>
-              <div className="text-sm text-blue-600 mt-1">
-                <span className="font-medium">Search:</span> {result.query?.topic || "N/A"} |{" "}
-                {result.query?.date_range || "Any time"} | {result.total_results || 0} Cases Found
+          <div className="space-y-6">
+            {/* Results Header */}
+            <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-xl shadow-legal p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-2xl font-bold text-white">Search Results</h2>
+                <div className="flex items-center space-x-2 text-sm text-gray-300">
+                  <span className="bg-success-green/10 text-success-green px-3 py-1 rounded-full">
+                    {result.cases?.length || 0} Cases Found
+                  </span>
+                </div>
+              </div>
+
+              {/* Filters and Sorting */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">Court Filter</label>
+                  <input
+                    type="text"
+                    value={courtFilter}
+                    onChange={(e) => setCourtFilter(e.target.value)}
+                    placeholder="Filter by court"
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-legal-blue placeholder-gray-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">Min Citations</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={minCitations}
+                    onChange={(e) => setMinCitations(e.target.value)}
+                    placeholder="Min citations"
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-legal-blue placeholder-gray-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">Sort By</label>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-legal-blue"
+                  >
+                    <option>Newest</option>
+                    <option>Oldest</option>
+                    <option>Most Cited</option>
+                    <option>Least Cited</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">Results Per Page</label>
+                  <select
+                    value={perPage}
+                    onChange={(e) => setPerPage(Number(e.target.value))}
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-legal-blue"
+                  >
+                    <option value={5}>5 per page</option>
+                    <option value={10}>10 per page</option>
+                    <option value={20}>20 per page</option>
+                  </select>
+                </div>
               </div>
             </div>
 
-            {/* Filters and Sorting */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
-              <input
-                type="text"
-                value={courtFilter}
-                onChange={(e) => setCourtFilter(e.target.value)}
-                placeholder="Filter by court"
-                className="p-2 border rounded"
-              />
-              <input
-                type="number"
-                min="0"
-                value={minCitations}
-                onChange={(e) => setMinCitations(e.target.value)}
-                placeholder="Min citations"
-                className="p-2 border rounded"
-              />
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-                className="p-2 border rounded"
-              >
-                <option>Newest</option>
-                <option>Oldest</option>
-                <option>Most Cited</option>
-                <option>Least Cited</option>
-              </select>
-              <select
-                value={perPage}
-                onChange={(e) => setPerPage(Number(e.target.value))}
-                className="p-2 border rounded"
-              >
-                <option value={5}>5 / page</option>
-                <option value={10}>10 / page</option>
-                <option value={20}>20 / page</option>
-              </select>
-            </div>
-
+            {/* Cases List */}
             {(!result.cases || result.cases.length === 0) ? (
-              <div className="text-center py-8">
-                <p className="text-gray-600 text-lg">No cases found matching your criteria.</p>
-                <p className="text-gray-500 text-sm mt-2">Try adjusting your search terms or date range.</p>
+              <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-xl shadow-legal p-12 text-center">
+                <div className="w-16 h-16 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </div>
+                <h3 className="text-lg font-medium text-white mb-2">No cases found</h3>
+                <p className="text-gray-300">Try adjusting your search terms or filters to find relevant cases.</p>
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-6">
                 {sortedAndFilteredCases().map((caseItem) => (
                   <div
                     key={caseItem.case_id}
-                    className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden"
+                    className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-xl shadow-legal overflow-hidden hover:shadow-legal-lg transition-all duration-200 hover:bg-gray-800/70"
                   >
                     <div className="p-6">
-                      <div className="flex justify-between items-start mb-3">
-                        <h3 className="text-xl font-bold text-gray-900 leading-tight">
-                          {caseItem.title || caseItem.summary?.case || "Unknown Case"}
-                        </h3>
-                        <div className="flex items-center gap-2">
-                          <span className="bg-purple-100 text-purple-800 text-xs font-medium px-2 py-0.5 rounded">
-                            Found by Case Finder
-                          </span>
-                          <span className="bg-green-100 text-green-800 text-xs font-medium px-2 py-0.5 rounded">
-                            Summarized by Summarizer AI
-                          </span>
-                          <span className="bg-blue-100 text-blue-800 text-xs font-medium px-2 py-0.5 rounded">
-                            Linked by Citation AI
+                      {/* Case Header */}
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="flex-1">
+                          <h3 className="text-xl font-bold text-white leading-tight mb-2">
+                            {caseItem.title || caseItem.summary?.case || "Unknown Case"}
+                          </h3>
+                          <div className="flex items-center space-x-4 text-sm text-gray-300">
+                            <span className="flex items-center space-x-1">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                              </svg>
+                              <span>{caseItem.court || caseItem.summary?.court || "Unknown Court"}</span>
+                            </span>
+                            <span className="flex items-center space-x-1">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                              </svg>
+                              <span>{caseItem.date || caseItem.related_precedents?.[0]?.date || "Unknown Date"}</span>
+                            </span>
+                            <span className="flex items-center space-x-1">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              </svg>
+                              <span>{caseItem.citations_count || 0} Citations</span>
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <span className={`px-3 py-1 rounded-full text-xs font-medium ${(caseItem.decision || caseItem.summary?.decision) === "Reversed"
+                              ? "bg-error-red/10 text-error-red"
+                              : (caseItem.decision || caseItem.summary?.decision) === "Affirmed"
+                                ? "bg-success-green/10 text-success-green"
+                                : (caseItem.decision || caseItem.summary?.decision) === "Remanded"
+                                  ? "bg-warning-orange/10 text-warning-orange"
+                                  : "bg-gray-100 text-gray-600"
+                            }`}>
+                            {caseItem.decision || caseItem.summary?.decision || "Unknown"}
                           </span>
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                        <div className="space-y-2">
-                          <p className="text-sm">
-                            <span className="font-semibold text-gray-700">Court:</span>{" "}
-                            <span className="ml-2 text-gray-900">
-                              {caseItem.court || caseItem.summary?.court || "Unknown"}
-                            </span>
-                          </p>
-                          <p className="text-sm">
-                            <span className="font-semibold text-gray-700">Decision:</span>{" "}
-                            <span
-                              className={`ml-2 px-2 py-1 rounded text-xs font-medium ${(caseItem.decision || caseItem.summary?.decision) === "Reversed"
-                                ? "bg-red-100 text-red-800"
-                                : (caseItem.decision || caseItem.summary?.decision) === "Affirmed"
-                                  ? "bg-green-100 text-green-800"
-                                  : (caseItem.decision || caseItem.summary?.decision) === "Remanded"
-                                    ? "bg-yellow-100 text-yellow-800"
-                                    : "bg-gray-100 text-gray-800"
-                                }`}
-                            >
-                              {caseItem.decision || caseItem.summary?.decision || "Unknown"}
-                            </span>
-                          </p>
-                        </div>
-                        <div className="space-y-2">
-                          <p className="text-sm">
-                            <span className="font-semibold text-gray-700">Docket:</span>{" "}
-                            <span className="ml-2 font-mono text-gray-900">
-                              {caseItem.docket_id || caseItem.case_id}
-                            </span>
-                          </p>
-                          <p className="text-sm">
-                            <span className="font-semibold text-gray-700">Citations:</span>{" "}
-                            <span className="ml-2 text-gray-900">{caseItem.citations_count || 0}</span>
-                          </p>
-                          <p className="text-sm">
-                            <span className="font-semibold text-gray-700">Date:</span>{" "}
-                            <span className="ml-2 text-gray-900">
-                              {caseItem.date || caseItem.related_precedents?.[0]?.date || "Unknown"}
-                            </span>
-                          </p>
-                        </div>
+                      {/* AI Agent Badges */}
+                      <div className="flex flex-wrap gap-2 mb-4">
+                        <span className="bg-legal-blue/10 text-legal-blue text-xs font-medium px-2 py-1 rounded-full">
+                          Found by Case Finder
+                        </span>
+                        <span className="bg-success-green/10 text-success-green text-xs font-medium px-2 py-1 rounded-full">
+                          Summarized by AI
+                        </span>
+                        <span className="bg-accent-gold/10 text-accent-gold text-xs font-medium px-2 py-1 rounded-full">
+                          Citations Extracted
+                        </span>
+                        <span className="bg-purple-100 text-purple-800 text-xs font-medium px-2 py-1 rounded-full">
+                          Precedents Linked
+                        </span>
                       </div>
 
-                      <div className="mb-4">
-                        <h4 className="font-semibold text-gray-700 mb-2">Case Summary:</h4>
-                        <p className="text-gray-800 leading-relaxed">
+                      {/* Case Summary */}
+                      <div className="mb-6">
+                        <h4 className="font-semibold text-white mb-3 flex items-center">
+                          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          Case Summary
+                        </h4>
+                        <p className="text-gray-200 leading-relaxed bg-gray-700/50 p-4 rounded-lg border border-gray-600">
                           {caseItem.summary?.issue || "No summary available"}
                         </p>
                         {caseItem.summary?.entities && (
-                          <div className="mt-2">
-                            <h5 className="font-semibold text-gray-600">Entities:</h5>
-                            <ul className="text-sm text-gray-700 list-disc list-inside">
+                          <div className="mt-3">
+                            <h5 className="font-medium text-gray-300 mb-2">Key Entities:</h5>
+                            <div className="flex flex-wrap gap-2">
                               {Object.entries(caseItem.summary.entities).map(([type, entities]) =>
                                 entities.length > 0 ? (
-                                  <li key={type}>
-                                    {type.charAt(0).toUpperCase() + type.slice(1)}: {entities.join(", ")}
-                                  </li>
+                                  <div key={type} className="text-sm">
+                                    <span className="font-medium text-gray-300">{type}:</span>
+                                    <span className="text-gray-200 ml-1">{entities.join(", ")}</span>
+                                  </div>
                                 ) : null
                               )}
-                            </ul>
+                            </div>
                           </div>
                         )}
                       </div>
 
+                      {/* Legal Citations */}
                       {caseItem.legal_citations && caseItem.legal_citations.length > 0 && (
-                        <div className="mb-4">
-                          <div className="flex items-center justify-between">
-                            <h4 className="font-semibold text-gray-700 mb-2">Legal Citations</h4>
+                        <div className="mb-6">
+                          <div className="flex items-center justify-between mb-3">
+                            <h4 className="font-semibold text-white flex items-center">
+                              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              </svg>
+                              Legal Citations ({caseItem.legal_citations.length})
+                            </h4>
                             <button
-                              className="text-sm text-blue-600"
+                              className="text-accent-gold hover:text-yellow-400 text-sm font-medium transition-colors"
                               onClick={() => toggleExpanded(`${caseItem.case_id}-cits`)}
                             >
                               {expanded[`${caseItem.case_id}-cits`] ? "Collapse" : "Expand"}
                             </button>
                           </div>
                           {expanded[`${caseItem.case_id}-cits`] && (
-                            <div className="flex flex-wrap gap-2">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                               {caseItem.legal_citations.map((citation, cIdx) => (
                                 <span
                                   key={cIdx}
-                                  className="bg-gray-100 text-gray-800 text-xs px-2 py-1 rounded"
+                                  className="bg-legal-blue/20 text-legal-blue text-sm px-3 py-2 rounded-lg border border-legal-blue/30"
                                 >
                                   {citation}
                                 </span>
@@ -289,28 +356,34 @@ export default function QueryParser() {
                         </div>
                       )}
 
+                      {/* Related Precedents */}
                       {caseItem.related_precedents && caseItem.related_precedents.length > 0 && (
                         <div>
-                          <div className="flex items-center justify-between">
-                            <h4 className="font-semibold text-gray-700 mb-2">Related Precedents</h4>
+                          <div className="flex items-center justify-between mb-3">
+                            <h4 className="font-semibold text-white flex items-center">
+                              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                              </svg>
+                              Related Precedents ({caseItem.related_precedents.length})
+                            </h4>
                             <button
-                              className="text-sm text-blue-600"
+                              className="text-accent-gold hover:text-yellow-400 text-sm font-medium transition-colors"
                               onClick={() => toggleExpanded(`${caseItem.case_id}-prec`)}
                             >
                               {expanded[`${caseItem.case_id}-prec`] ? "Collapse" : "Expand"}
                             </button>
                           </div>
                           {expanded[`${caseItem.case_id}-prec`] && (
-                            <div className="space-y-2">
+                            <div className="space-y-3">
                               {caseItem.related_precedents.map((prec, pIdx) => (
                                 <div
                                   key={pIdx}
-                                  className="bg-gray-50 p-3 rounded border-l-4 border-blue-200"
+                                  className="bg-gray-700/50 p-4 rounded-lg border-l-4 border-legal-blue"
                                 >
-                                  <p className="font-medium text-gray-900">
+                                  <p className="font-medium text-white mb-1">
                                     {prec.title || "Unknown Case"}
                                   </p>
-                                  <p className="text-sm text-gray-600">
+                                  <p className="text-sm text-gray-300">
                                     Court: {prec.court || "Unknown"} | Date: {prec.date || "Unknown"} | ID: {prec.id || "Unknown"}
                                   </p>
                                 </div>
@@ -322,39 +395,6 @@ export default function QueryParser() {
                     </div>
                   </div>
                 ))}
-              </div>
-            )}
-            {/* Pagination Controls */}
-            {result.pagination && (
-              <div className="flex items-center justify-between mt-6">
-                <div className="text-sm text-gray-600">
-                  Page {result.pagination.page} of {result.pagination.total_pages} • {result.total_results} results •{" "}
-                  {result.execution_time_ms} ms
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    className="px-3 py-1 rounded border bg-white disabled:opacity-50"
-                    disabled={result.pagination.page <= 1 || loading}
-                    onClick={() => {
-                      setPage((p) => Math.max(1, p - 1));
-                      setResult(null);
-                      setTimeout(() => handleSubmit(new Event("submit")), 0);
-                    }}
-                  >
-                    Prev
-                  </button>
-                  <button
-                    className="px-3 py-1 rounded border bg-white disabled:opacity-50"
-                    disabled={result.pagination.page >= result.pagination.total_pages || loading}
-                    onClick={() => {
-                      setPage((p) => p + 1);
-                      setResult(null);
-                      setTimeout(() => handleSubmit(new Event("submit")), 0);
-                    }}
-                  >
-                    Next
-                  </button>
-                </div>
               </div>
             )}
           </div>
