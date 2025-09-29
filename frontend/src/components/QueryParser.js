@@ -14,7 +14,7 @@ export default function QueryParser() {
   const [error, setError] = useState("");
 
   const API_URL = "http://localhost:8000/query";
-  const TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjaGFtb2QiLCJleHAiOjE3NTg4NjA0NTR9.3de5lytyPAYZl-fXhVDUL4XXkQgCgDHX17LlG-ZHaYI";
+  const TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjaGFtb2QiLCJleHAiOjE3NTg4OTE4MTN9.Jo_RQDGLsAltuwuSWp0D6RDQ209f_BCOp0dbPNGe5p8";
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -268,12 +268,12 @@ export default function QueryParser() {
                         </div>
                         <div className="flex items-center space-x-2">
                           <span className={`px-3 py-1 rounded-full text-xs font-medium ${(caseItem.decision || caseItem.summary?.decision) === "Reversed"
-                              ? "bg-error-red/10 text-error-red"
-                              : (caseItem.decision || caseItem.summary?.decision) === "Affirmed"
-                                ? "bg-success-green/10 text-success-green"
-                                : (caseItem.decision || caseItem.summary?.decision) === "Remanded"
-                                  ? "bg-warning-orange/10 text-warning-orange"
-                                  : "bg-gray-100 text-gray-600"
+                            ? "bg-error-red/10 text-error-red"
+                            : (caseItem.decision || caseItem.summary?.decision) === "Affirmed"
+                              ? "bg-success-green/10 text-success-green"
+                              : (caseItem.decision || caseItem.summary?.decision) === "Remanded"
+                                ? "bg-warning-orange/10 text-warning-orange"
+                                : "bg-gray-100 text-gray-600"
                             }`}>
                             {caseItem.decision || caseItem.summary?.decision || "Unknown"}
                           </span>
@@ -346,7 +346,7 @@ export default function QueryParser() {
                               {caseItem.legal_citations.map((citation, cIdx) => (
                                 <span
                                   key={cIdx}
-                                  className="bg-legal-blue/20 text-legal-blue text-sm px-3 py-2 rounded-lg border border-legal-blue/30"
+                                  className="bg-legal-blue/20 text-white text-sm px-3 py-2 rounded-lg border border-legal-blue/30"
                                 >
                                   {citation}
                                 </span>

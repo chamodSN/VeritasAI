@@ -24,7 +24,7 @@ const Results = ({ cases, loading, error }) => {
           </div>
           <h2 className="text-2xl font-bold text-white mb-2">Search Error</h2>
           <p className="text-gray-300 mb-6">{error}</p>
-          <button 
+          <button
             onClick={() => window.location.reload()}
             className="bg-legal-blue hover:bg-blue-700 text-white px-6 py-3 rounded-lg transition-colors"
           >
@@ -46,7 +46,7 @@ const Results = ({ cases, loading, error }) => {
           </div>
           <h2 className="text-2xl font-bold text-white mb-2">No Cases Found</h2>
           <p className="text-gray-300 mb-6">Try adjusting your search terms or filters to find relevant cases.</p>
-          <button 
+          <button
             onClick={() => window.history.back()}
             className="bg-legal-blue hover:bg-blue-700 text-white px-6 py-3 rounded-lg transition-colors"
           >
@@ -115,15 +115,14 @@ const Results = ({ cases, loading, error }) => {
                     </div>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                      caseItem.decision === "Reversed"
-                        ? "bg-error-red/20 text-error-red"
-                        : caseItem.decision === "Affirmed"
-                          ? "bg-success-green/20 text-success-green"
-                          : caseItem.decision === "Remanded"
-                            ? "bg-warning-orange/20 text-warning-orange"
-                            : "bg-gray-600/20 text-gray-300"
-                    }`}>
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${caseItem.decision === "Reversed"
+                      ? "bg-error-red/20 text-error-red"
+                      : caseItem.decision === "Affirmed"
+                        ? "bg-success-green/20 text-success-green"
+                        : caseItem.decision === "Remanded"
+                          ? "bg-warning-orange/20 text-warning-orange"
+                          : "bg-gray-600/20 text-gray-300"
+                      }`}>
                       {caseItem.decision || "Unknown"}
                     </span>
                   </div>
@@ -173,7 +172,7 @@ const Results = ({ cases, loading, error }) => {
                       {caseItem.legal_citations.slice(0, 6).map((citation, cIdx) => (
                         <span
                           key={cIdx}
-                          className="bg-legal-blue/20 text-legal-blue text-sm px-3 py-2 rounded-lg border border-legal-blue/30"
+                          className="bg-legal-blue/20 text-white text-sm px-3 py-2 rounded-lg border border-legal-blue/30"
                         >
                           {citation}
                         </span>
@@ -225,7 +224,7 @@ const Results = ({ cases, loading, error }) => {
 
         {/* Back to Search */}
         <div className="mt-8 text-center">
-          <button 
+          <button
             onClick={() => window.history.back()}
             className="bg-legal-blue hover:bg-blue-700 text-white px-8 py-3 rounded-lg transition-colors font-medium"
           >

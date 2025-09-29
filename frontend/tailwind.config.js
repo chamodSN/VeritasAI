@@ -13,6 +13,7 @@ module.exports = {
         'success-green': '#059669',
         'warning-orange': '#d97706',
         'error-red': '#dc2626',
+        'legal-white': '#fff',
       },
       fontFamily: {
         'serif': ['Georgia', 'Times New Roman', 'serif'],
