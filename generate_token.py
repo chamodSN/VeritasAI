@@ -6,7 +6,7 @@ JWT_ALGORITHM = "HS256"
 
 payload = {
     "sub": "chamod",  # can be any user identifier
-    "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)  # 1-hour expiry
+    "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=5)  # 5-hour expiry
 }
 
 token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
