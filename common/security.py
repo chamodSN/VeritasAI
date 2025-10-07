@@ -36,7 +36,6 @@ def verify_token(token: str = Depends(api_key_header)) -> dict:
         if not claims.get("sub"):
             raise HTTPException(
                 status_code=401, detail="Invalid token: missing sub claim")
-        # Consistent return format
         return {"token": raw_jwt, "sub": claims["sub"]}
     except jwt.InvalidTokenError as e:
         raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")

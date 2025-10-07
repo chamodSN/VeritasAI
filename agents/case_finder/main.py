@@ -1,25 +1,33 @@
 from .ir import router as ir_router
 from fastapi.middleware.cors import CORSMiddleware
-from common.responsible_ai import responsible_ai
 from common.config import Config
 from common.models import SearchRequest
 from common.logging import logger
 from common.security import verify_token
+from common.responsible_ai import responsible_ai
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from rapidfuzz import process
 import httpx
 import spacy
-from typing import List, Tuple
+from typing import List, Tuple, Set
 from pydantic import BaseModel
 from fastapi import FastAPI, Depends, HTTPException
 from .utils import parse_dates_smart
+from nltk.corpus import wordnet
+import nltk
+import asyncio
+import xml.etree.ElementTree as ET  # For parsing SPARQL XML
+nltk.download('wordnet', quiet=True)
 
+# -----------------------------------------------------------
+# FASTAPI APP SETUP
+# -----------------------------------------------------------
 app = FastAPI(title="Query Understanding Agent")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all for testing
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -27,71 +35,137 @@ app.add_middleware(
 
 app.include_router(ir_router, tags=["search"])
 
+# -----------------------------------------------------------
+# MODEL INITIALIZATION
+# -----------------------------------------------------------
 nlp = spacy.load("en_core_web_sm")
 embed_model = SentenceTransformer('all-MiniLM-L6-v2')
 
-CASE_TYPE_CANDIDATES = []
-TOPIC_CANDIDATES = []
+# Maximum characters for topic/case_type labels
+MAX_LABEL_LENGTH = 30
+
+# Wikidata SPARQL endpoint
+WIKIDATA_SPARQL_URL = "https://query.wikidata.org/sparql"
+
+# -----------------------------------------------------------
+# FETCH LEGAL TERMS DYNAMICALLY
+# -----------------------------------------------------------
 
 
-async def load_labels():
-    global CASE_TYPE_CANDIDATES, TOPIC_CANDIDATES
-    async with httpx.AsyncClient(timeout=10) as client:
-        try:
-            r = await client.get(Config.CASE_TYPE_LABELS_URL)
-            r.raise_for_status()
-            CASE_TYPE_CANDIDATES = [str(x).strip().lower()
-                                    for x in r.json() if str(x).strip()]
-            logger.info(
-                f"Loaded {len(CASE_TYPE_CANDIDATES)} case types from {Config.CASE_TYPE_LABELS_URL}")
-        except Exception as e:
-            logger.error(
-                f"Failed to load case types from {Config.CASE_TYPE_LABELS_URL}: {str(e)}")
-            raise HTTPException(
-                status_code=500, detail=f"Failed to load case types: {str(e)}")
-        try:
-            r = await client.get(Config.TOPIC_LABELS_URL)
-            r.raise_for_status()
-            TOPIC_CANDIDATES = [str(x).strip().lower()
-                                for x in r.json() if str(x).strip()]
-            logger.info(
-                f"Loaded {len(TOPIC_CANDIDATES)} topics from {Config.TOPIC_LABELS_URL}")
-        except Exception as e:
-            logger.error(
-                f"Failed to load topics from {Config.TOPIC_LABELS_URL}: {str(e)}")
-            raise HTTPException(
-                status_code=500, detail=f"Failed to load topics: {str(e)}")
+async def fetch_wikidata_legal_terms() -> Tuple[Set[str], Set[str]]:
+    """Fetch dynamic case types and topics from Wikidata using SPARQL."""
+    try:
+        # SPARQL query for case types: Subclasses of "legal case" (Q2334719) or "type of lawsuit" (Q1762010)
+        case_type_sparql = """
+        SELECT DISTINCT ?itemLabel WHERE {
+          ?item wdt:P279* wd:Q2334719 .  # Subclasses of legal case
+          SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+        } LIMIT 100
+        """
+
+        # SPARQL query for topics: Subclasses of "branch of law" (Q164888) or "legal concept" (Q2135465)
+        topic_sparql = """
+        SELECT DISTINCT ?itemLabel WHERE {
+          ?item wdt:P279* wd:Q164888 .  # Subclasses of branch of law
+          SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+        } LIMIT 100
+        """
+
+        async def query_sparql(sparql: str) -> Set[str]:
+            async with httpx.AsyncClient(timeout=15) as client:
+                params = {"query": sparql, "format": "xml"}
+                res = await client.get(WIKIDATA_SPARQL_URL, params=params)
+                res.raise_for_status()
+                root = ET.fromstring(res.content)
+                terms = set()
+                for binding in root.findall(".//{http://www.w3.org/2005/sparql-results#}binding[@name='itemLabel']/{http://www.w3.org/2005/sparql-results#}literal"):
+                    label = binding.text.strip()
+                    if len(label) <= MAX_LABEL_LENGTH and label.lower() not in terms:
+                        terms.add(label.lower())
+                return terms
+
+        case_types = await query_sparql(case_type_sparql)
+        topics = await query_sparql(topic_sparql)
+
+        # Merge with CourtListener/Open Legal Data if needed (e.g., via additional queries or static)
+        # For now, Wikidata is primary; add if more sources available
+
+        if not case_types or not topics:
+            logger.warning(
+                "Wikidata fetch returned empty; using minimal fallback")
+            case_types = {"criminal law", "civil law",
+                          "tax law", "contract law"}
+            topics = {"human rights", "environmental law",
+                      "intellectual property", "corporate law"}
+
+        return case_types, topics
+
+    except Exception as e:
+        logger.error(f"Failed to fetch legal terms from Wikidata: {str(e)}")
+        return set(), set()  # Empty to force "unknown" if fail
+
+# Global sets for classification
+LEGAL_CASE_TYPES: Set[str] = set()
+LEGAL_TOPICS: Set[str] = set()
 
 
 @app.on_event("startup")
-async def startup_event():
-    await load_labels()
+async def load_legal_terms():
+    """Load legal terms asynchronously at FastAPI startup."""
+    global LEGAL_CASE_TYPES, LEGAL_TOPICS
+    LEGAL_CASE_TYPES, LEGAL_TOPICS = await fetch_wikidata_legal_terms()
+    logger.info(
+        f"✅ Legal terms loaded: {len(LEGAL_CASE_TYPES)} case types, {len(LEGAL_TOPICS)} topics")
+
+# -----------------------------------------------------------
+# CLASSIFICATION FUNCTIONS
+# -----------------------------------------------------------
 
 
-def classify_with_embeddings(text: str, candidates: List[str], min_score: float = 0.4) -> Tuple[str, float]:
+def classify_with_embeddings(text: str, candidates: Set[str], min_score: float = 0.25) -> Tuple[str, float]:
+    """Return best matching candidate using embeddings, respecting MAX_LABEL_LENGTH."""
     if not text or not candidates:
         return "unknown", 0.0
-    try:
-        q = embed_model.encode([text])[0]
-        cands = embed_model.encode(candidates)
-        sims = [q @ c / (np.linalg.norm(q) * np.linalg.norm(c)) for c in cands]
-        best_idx = max(range(len(sims)), key=lambda i: sims[i])
-        best_score = sims[best_idx]
-        return candidates[best_idx] if best_score >= min_score else "unknown", best_score
-    except Exception as e:
-        logger.error(f"Error in embedding classification: {str(e)}")
+    q = embed_model.encode([text])[0]
+    cands_list = [c for c in candidates if len(
+        c) <= MAX_LABEL_LENGTH]  # enforce length
+    if not cands_list:
         return "unknown", 0.0
+    cands_embeddings = embed_model.encode(cands_list)
+    sims = [np.dot(q, c) / (np.linalg.norm(q) * np.linalg.norm(c))
+            for c in cands_embeddings]
+    best_idx = int(np.argmax(sims))
+    best_score = sims[best_idx]
+    return cands_list[best_idx] if best_score >= min_score else "unknown", best_score
 
 
-def classify_with_fuzzy(text: str, candidates: List[str], min_score: int = 70) -> Tuple[str, float]:
+def classify_with_fuzzy(text: str, candidates: Set[str], min_score: int = 70) -> Tuple[str, float]:
+    """Return best matching candidate using fuzzy matching, respecting MAX_LABEL_LENGTH."""
     if not text or not candidates:
         return "unknown", 0.0
-    try:
-        result = process.extractOne(text, candidates, score_cutoff=min_score)
-        return (result[0], result[1] / 100.0) if result else ("unknown", 0.0)
-    except Exception as e:
-        logger.error(f"Error in fuzzy classification: {str(e)}")
+    cands_list = [c for c in candidates if len(c) <= MAX_LABEL_LENGTH]
+    if not cands_list:
         return "unknown", 0.0
+    result = process.extractOne(text, cands_list, score_cutoff=min_score)
+    return (result[0], result[1] / 100.0) if result else ("unknown", 0.0)
+
+
+def expand_query_with_synonyms(text: str) -> str:
+    """Expand query terms with up to 2 synonyms from WordNet."""
+    words = text.split()
+    expanded = []
+    for word in words:
+        synonyms = set([lemma.name() for synset in wordnet.synsets(word)
+                       for lemma in synset.lemmas()])
+        if synonyms:
+            expanded.append(f"({word} OR {' OR '.join(list(synonyms)[:2])})")
+        else:
+            expanded.append(word)
+    return " ".join(expanded)
+
+# -----------------------------------------------------------
+# MAIN ENDPOINT
+# -----------------------------------------------------------
 
 
 @app.post("/parse_query", response_model=SearchRequest, tags=["parse"])
@@ -101,68 +175,42 @@ async def parse_query(request: SearchRequest, token: dict = Depends(verify_token
             raise HTTPException(
                 status_code=400, detail=f"Query too long. Max: {Config.MAX_QUERY_LENGTH} chars")
 
-        fairness_check = await responsible_ai.check_query_fairness(request.raw_query or "")
-        if not fairness_check.get("is_fair", True):
-            logger.warning(
-                f"RA Check: Query fairness issue - {fairness_check.get('warnings', [])}")
-
         q = (request.raw_query or "").lower()
         doc = nlp(q)
-        from .utils import parse_dates_smart
         date_from, date_to = parse_dates_smart(q)
 
-        chunks = [chunk.text for chunk in doc.noun_chunks]
-        bag = " ".join(chunks) if chunks else q
+        legal_entities = [ent.text.lower() for ent in doc.ents if ent.label_ in [
+            "ORG", "PERSON", "GPE", "LAW"]]
+        bag = " ".join(legal_entities + [chunk.text.lower()
+                       for chunk in doc.noun_chunks])
 
-        # Improved classification with hardcoded common terms
-        case_type = "unknown"
-        score = 0.0
-        if "criminal" in bag:
-            case_type = "criminal"
-            score = 0.9
-        else:
-            case_type, fuzzy_score = classify_with_fuzzy(
-                bag, CASE_TYPE_CANDIDATES)
-            if case_type == "unknown":
-                case_type, embed_score = classify_with_embeddings(
-                    bag, CASE_TYPE_CANDIDATES)
-                score = embed_score
-            else:
-                score = fuzzy_score
+        # Classify case type dynamically
+        case_type, score = classify_with_fuzzy(bag, LEGAL_CASE_TYPES)
+        if case_type == "unknown":
+            case_type, score = classify_with_embeddings(bag, LEGAL_CASE_TYPES)
 
-        topic = "unknown"
-        topic_score = 0.0
-        if "theft" in bag:
-            topic = "theft"
-            topic_score = 0.9
-        else:
-            topic, topic_fuzzy_score = classify_with_fuzzy(
-                bag, TOPIC_CANDIDATES)
-            if topic == "unknown":
-                topic, topic_embed_score = classify_with_embeddings(
-                    bag, TOPIC_CANDIDATES)
-                topic_score = topic_embed_score
-            else:
-                topic_score = topic_fuzzy_score
+        # Classify topic dynamically
+        topic, topic_score = classify_with_fuzzy(bag, LEGAL_TOPICS)
+        if topic == "unknown":
+            topic, topic_score = classify_with_embeddings(bag, LEGAL_TOPICS)
 
-        classifications = {"case_type": (
-            case_type, score), "topic": (topic, topic_score)}
-        confidence_check = await responsible_ai.check_classification_confidence(classifications)
-        if not confidence_check.get("is_confident", True):
-            logger.warning(
-                f"RA Check: Low confidence - {confidence_check.get('confidence_issues', [])}")
+        expanded_query = expand_query_with_synonyms(q)
+
+        if Config.ENABLE_BIAS_DETECTION:
+            fairness_check = await responsible_ai.check_query_fairness(q)
+            if not fairness_check.get("is_fair", True):
+                logger.warning(
+                    f"Query bias: {fairness_check.get('warnings', [])}")
 
         resp = SearchRequest(
             case_type=case_type,
             topic=topic,
             date_from=date_from or request.date_from,
             date_to=date_to or request.date_to,
-            raw_query=q,  # Preserve original
-            court=request.court,
-            page=request.page,
-            per_page=request.per_page
+            raw_query=expanded_query,
+            court=request.court
         )
-        logger.info(f"Parsed query: {q} -> {resp.model_dump()}")
+        logger.info(f"Parsed query: {q} -> {resp.dict()}")
         return resp
     except Exception as e:
         logger.error(f"Error parsing query: {str(e)}")
