@@ -35,7 +35,7 @@ class Case(BaseModel):
     court: Optional[str] = None
     decision: Optional[str] = None
     docket_id: Optional[str] = None
-    date: Optional[str] = None  # Added date field
+    date: Optional[str] = None
     summary: Optional[Dict[str, Any]] = None
     legal_citations: Optional[List[str]] = None
     citations_count: Optional[int] = None

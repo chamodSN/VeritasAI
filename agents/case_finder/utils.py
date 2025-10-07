@@ -1,26 +1,6 @@
 import re
 import unicodedata
 from datetime import datetime, date
-from dateutil.relativedelta import relativedelta
-import dateparser
-
-ISO_FMT = "%Y-%m-%d"
-
-RELATIVE_PATTERNS = [
-    (re.compile(r"last\s+(\d+)\s+years?", re.I),
-     lambda n: (date.today() - relativedelta(years=int(n)), date.today())),
-    (re.compile(r"last\s+(\d+)\s+months?", re.I),
-     lambda n: (date.today() - relativedelta(months=int(n)), date.today())),
-    (re.compile(r"last\s+years?", re.I),  # New pattern for vague plural
-     # Default 2 years
-     lambda _: (date.today() - relativedelta(years=2), date.today())),
-    (re.compile(r"last\s+year", re.I), lambda _: (date(date.today().year -
-     1, 1, 1), date(date.today().year - 1, 12, 31))),
-    (re.compile(r"this\s+year", re.I),
-     lambda _: (date(date.today().year, 1, 1), date.today())),
-]
-
-QTR_PATTERN = re.compile(r"Q([1-4])\s*(\d{4})", re.I)
 
 
 def normalize_text(text: str) -> str:
@@ -31,47 +11,63 @@ def normalize_text(text: str) -> str:
 def parse_dates_smart(text: str):
     if not text:
         return None, None
-    t = normalize_text(text)
+    t = normalize_text(text.lower())
+    year_match = re.search(r'\b(\d{4})\b', t)
+    if year_match:
+        year = int(year_match.group(1))
+        if 1900 <= year <= 2100:
+            return date(year, 1, 1).isoformat(), date(year, 12, 31).isoformat()
 
-    m = QTR_PATTERN.search(t)
-    if m:
-        q = int(m.group(1))
-        y = int(m.group(2))
-        start_month = {1: 1, 2: 4, 3: 7, 4: 10}[q]
-        start = date(y, start_month, 1)
-        end = (start + relativedelta(months=3)) - relativedelta(days=1)
-        return start.isoformat(), end.isoformat()
-
-    for pat, fn in RELATIVE_PATTERNS:
-        m = pat.search(t)
-        if m:
-            arg = m.group(1) if m.groups() else None
-            d1, d2 = fn(arg)
-            return d1.isoformat(), d2.isoformat()
-
-    between = re.search(r"between\s+(.+?)\s+and\s+(.+)$", t, flags=re.I)
-    if between:
-        d1 = dateparser.parse(between.group(1), settings={
-                              'PREFER_DATES_FROM': 'past'})
-        d2 = dateparser.parse(between.group(2), settings={
-                              'PREFER_DATES_FROM': 'past'})
-        if d1 and d2:
-            a, b = sorted([d1.date(), d2.date()])
-            return a.isoformat(), b.isoformat()
-
-    yr_rng = re.search(r"\b(\d{4})\s*(?:to|\-|\u2013|\u2014)\s*(\d{4})\b", t)
-    if yr_rng:
-        y1, y2 = sorted([int(yr_rng.group(1)), int(yr_rng.group(2))])
-        return date(y1, 1, 1).isoformat(), date(y2, 12, 31).isoformat()
+    date_patterns = r'\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}-\d{1,2}-\d{1,2}|(?<![\d\w])(\d{4})(?![\d\w])|\w+\s+\d{1,2},?\s+\d{4}|\w+\s+\d{4}|last\s+\w+|this\s+\w+|between\s+.+?\s+and\s+.+?)\b'
+    potential_dates = re.findall(date_patterns, t, re.I)
 
     parsed_dates = []
-    for chunk in re.findall(r"\b([A-Za-z]{3,9} \d{1,2}, \d{4}|\d{1,2}/\d{1,2}/\d{2,4}|\d{4}-\d{1,2}-\d{1,2}|[A-Za-z]{3,9} \d{4})\b", t):
-        dt = dateparser.parse(chunk, settings={'PREFER_DATES_FROM': 'past'})
-        if dt:
-            parsed_dates.append(dt.date())
+    for pd in potential_dates:
+        if isinstance(pd, tuple):
+            pd = pd[0]
+        try:
+            if re.match(r'^\d{4}$', pd):
+                year = int(pd)
+                dt = date(year, 1, 1)
+            else:
+                for fmt in ['%Y-%m-%d', '%m/%d/%Y', '%B %d, %Y', '%b %d, %Y', '%Y']:
+                    try:
+                        dt = datetime.strptime(pd, fmt).date()
+                        break
+                    except ValueError:
+                        continue
+                else:
+                    continue
+            parsed_dates.append(dt)
+        except ValueError:
+            continue
 
-    if parsed_dates:
-        parsed_dates.sort()
+    between_match = re.search(
+        r"between\s+(.+?)\s+and\s+(.+?)(?:\s|$)", t, re.I)
+    if between_match:
+        for part in [between_match.group(1), between_match.group(2)]:
+            for fmt in ['%Y-%m-%d', '%m/%d/%Y', '%B %d, %Y', '%b %d, %Y', '%Y']:
+                try:
+                    dt = datetime.strptime(part, fmt).date()
+                    parsed_dates.append(dt)
+                    break
+                except ValueError:
+                    continue
+
+    parsed_dates = sorted(set(parsed_dates))
+
+    if len(parsed_dates) >= 2:
         return parsed_dates[0].isoformat(), parsed_dates[-1].isoformat()
+    elif len(parsed_dates) == 1:
+        pd = parsed_dates[0]
+        if pd.month == 1 and pd.day == 1 and 1900 <= pd.year <= 2100:
+            return date(pd.year, 1, 1).isoformat(), date(pd.year, 12, 31).isoformat()
+        return pd.isoformat(), pd.isoformat()
+    else:
+        yr_rng = re.search(
+            r"\b(\d{4})\s*(?:to|\-|\u2013|\u2014)\s*(\d{4})\b", t)
+        if yr_rng:
+            y1, y2 = sorted([int(yr_rng.group(1)), int(yr_rng.group(2))])
+            return date(y1, 1, 1).isoformat(), date(y2, 12, 31).isoformat()
 
     return None, None
