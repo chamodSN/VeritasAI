@@ -47,24 +47,32 @@ async def process_query(request: QueryRequest, token: dict = Depends(verify_toke
                 raise HTTPException(
                     status_code=500, detail="Query parsing failed")
 
-            # Step 2: Search cases (with fallback for expanded query issues)
+            # Step 2: Search cases (with fallbacks)
             search_response = None
             search_req_simple = SearchRequest(
                 raw_query=query, **{k: v for k, v in search_req.dict().items() if k != 'raw_query'})
-            for attempt in range(2):
+            for attempt in range(3):
                 try:
                     if attempt == 0:
-                        # Try expanded query first
+                        # Try expanded query with dates
                         payload = {
                             "num_results": request.per_page, **search_req.dict()}
                         logger.info(
-                            f"Search attempt {attempt + 1}: Using expanded query")
-                    else:
-                        # Fallback to simple original query
+                            f"Search attempt {attempt + 1}: Using expanded query with dates")
+                    elif attempt == 1:
+                        # Fallback to simple original query with dates
                         payload = {
                             "num_results": request.per_page, **search_req_simple.dict()}
                         logger.info(
-                            f"Search attempt {attempt + 1}: Falling back to simple query '{query}'")
+                            f"Search attempt {attempt + 1}: Falling back to simple query with dates '{query}'")
+                    else:
+                        # Fallback to simple query without dates
+                        payload = {
+                            "num_results": request.per_page, **search_req_simple.dict()}
+                        payload['date_from'] = None
+                        payload['date_to'] = None
+                        logger.info(
+                            f"Search attempt {attempt + 1}: Simple query without date filter")
 
                     search_res = await client.post(
                         f"{Config.CASE_FINDER_URL}/search",
@@ -82,9 +90,6 @@ async def process_query(request: QueryRequest, token: dict = Depends(verify_toke
                 except Exception as search_err:
                     logger.error(
                         f"Search attempt {attempt + 1} failed: {str(search_err)}")
-                    if attempt == 1:
-                        raise HTTPException(
-                            status_code=500, detail="Case search failed after fallback")
                     continue
 
             if not search_response or not search_response.cases:
@@ -164,7 +169,6 @@ async def process_query(request: QueryRequest, token: dict = Depends(verify_toke
                 # Precedents
                 related_precedents = []
                 try:
-                    # Longer for search/embed
                     async with httpx.AsyncClient(timeout=15.0) as prec_client:
                         precedent_res = await prec_client.post(
                             f"{Config.PRECEDENT_URL}/find_precedents",
