@@ -1,8 +1,8 @@
 from crewai import Crew, Task
-from agents.argument_agent import argument_agent
-from agents.analytics_agent import analytics_agent
-from agents.summarization_agent import summarization_agent
-from agents.issue_agent import issue_agent
+from agents.argument.argument_agent import argument_agent
+from agents.analytics.analytics_agent import analytics_agent
+from agents.summary.summarization_agent import summarization_agent
+from agents.issue.issue_agent import issue_agent
 from model.case_indexer import retrieve_documents
 from model.issue_extractor import extract_issues
 from model.citation_verifier import verify_citations
