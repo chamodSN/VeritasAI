@@ -3,22 +3,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-
 class Config:
-    HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
-    COURTLISTENER_API_KEY = os.getenv("COURTLISTENER_API_KEY")
-    COURTLISTENER_BASE_URL = os.getenv(
-        "COURTLISTENER_BASE_URL", "https://www.courtlistener.com/api/rest/v4/")
-    CASE_FINDER_URL = os.getenv("CASE_FINDER_URL", "http://localhost:8001")
-    SUMMARY_URL = os.getenv("SUMMARY_URL", "http://localhost:8002")
-    CITATION_URL = os.getenv("CITATION_URL", "http://localhost:8003")
-    PRECEDENT_URL = os.getenv("PRECEDENT_URL", "http://localhost:8004")
-    JWT_SECRET = os.getenv("JWT_SECRET")
-    ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
-
-    MAX_QUERY_LENGTH = int(os.getenv("MAX_QUERY_LENGTH", "500"))
-    MAX_RESULTS_PER_QUERY = int(os.getenv("MAX_RESULTS_PER_QUERY", "5"))
-    MIN_CONFIDENCE_THRESHOLD = float(
-        os.getenv("MIN_CONFIDENCE_THRESHOLD", "0.4"))
-    SIMILARITY_THRESHOLD = 0.5
-    ENABLE_BIAS_DETECTION = True
+    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai_api")
+    MODEL_NAME = os.getenv("LLM_MODEL", "gpt-4o-mini")
+    TEMPERATURE = float(os.getenv("TEMPERATURE", 0.4))
+    API_KEY = os.getenv("OPENAI_API_KEY")
+    API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
+    MONGO_URI = os.getenv("MONGO_URI")
+    DATABASE_NAME = os.getenv("DATABASE_NAME", "legal_ai")
+    VECTOR_STORE = os.getenv("EMBEDDINGS_PATH", "./data/embeddings/")
+    LOG_DIR = os.getenv("LOG_DIR", "./logs/")
+    GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+    GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+    DATA_PATH = os.getenv("DATA_PATH", "./data/corpus/")
