@@ -13,7 +13,11 @@ pdfminer.six
 pymongo
 python-dotenv
 authlib
+PyJWT
+httpx
 faiss-cpu
 huggingface-hub
 torch
 transformers
+python-multipart
+itsdangerous

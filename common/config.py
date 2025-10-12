@@ -15,4 +15,6 @@ class Config:
     LOG_DIR = os.getenv("LOG_DIR", "./logs/")
     GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
     GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+    SESSION_SECRET_KEY = os.getenv("SESSION_SECRET_KEY")
+    JWT_SECRET = os.getenv("JWT_SECRET")
     DATA_PATH = os.getenv("DATA_PATH", "./data/corpus/")
