@@ -42,7 +42,7 @@ def store_result(user_id: str, result: dict):
             serialized_result[key] = str(value.raw)
         else:
             serialized_result[key] = value
-    
+
     results_collection.insert_one({"user_id": user_id, **serialized_result})
 
 
