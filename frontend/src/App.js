@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import './index.css';
 
@@ -8,6 +8,9 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [apiUrl, setApiUrl] = useState('http://localhost:8000');
+  const [user, setUser] = useState(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
 
   // Sample queries for quick testing
   const sampleQueries = [
@@ -18,6 +21,90 @@ function App() {
     "How to prove Article 12(1) violations?"
   ];
 
+  // Authentication functions
+  const getAuthToken = () => {
+    return localStorage.getItem('authToken');
+  };
+
+  const setAuthToken = (token) => {
+    localStorage.setItem('authToken', token);
+  };
+
+  const removeAuthToken = () => {
+    localStorage.removeItem('authToken');
+  };
+
+  const checkAuthStatus = async () => {
+    const token = getAuthToken();
+    if (!token) {
+      setAuthLoading(false);
+      return;
+    }
+
+    try {
+      const response = await axios.get(`${apiUrl}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setUser(response.data);
+      setIsAuthenticated(true);
+    } catch (error) {
+      console.error('Auth check failed:', error);
+      removeAuthToken();
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleGoogleLogin = () => {
+    window.location.href = `${apiUrl}/api/auth/google`;
+  };
+
+  const handleLogout = async () => {
+    try {
+      await axios.post(`${apiUrl}/api/auth/logout`);
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      removeAuthToken();
+      setUser(null);
+      setIsAuthenticated(false);
+      setResults(null);
+    }
+  };
+
+  // Handle OAuth callback
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    
+    if (token) {
+      setAuthToken(token);
+      // Clean up URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+      // Check auth status
+      checkAuthStatus();
+    } else {
+      checkAuthStatus();
+    }
+  }, [apiUrl]);
+
+  // Create axios instance with auth header
+  const apiClient = axios.create({
+    baseURL: apiUrl,
+    headers: {
+      'Content-Type': 'application/json',
+    }
+  });
+
+  // Add auth interceptor
+  apiClient.interceptors.request.use((config) => {
+    const token = getAuthToken();
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  });
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!query.trim()) return;
@@ -27,13 +114,19 @@ function App() {
     setResults(null);
 
     try {
-      const response = await axios.post(`${apiUrl}/api/query`, {
+      const response = await apiClient.post('/api/query', {
         query: query.trim()
       });
 
       setResults(response.data);
     } catch (err) {
-      setError(err.response?.data?.detail || err.message);
+      if (err.response?.status === 401) {
+        setError('Please log in to submit queries');
+        setIsAuthenticated(false);
+        removeAuthToken();
+      } else {
+        setError(err.response?.data?.detail || err.message);
+      }
       console.error('Error:', err);
     } finally {
       setLoading(false);
@@ -82,6 +175,36 @@ function App() {
                 <i className="fas fa-server mr-2"></i>
                 API: {apiUrl}
               </div>
+              
+              {/* Authentication Section */}
+              {authLoading ? (
+                <div className="text-sm text-gray-500">
+                  <i className="fas fa-spinner fa-spin mr-2"></i>
+                  Checking authentication...
+                </div>
+              ) : isAuthenticated ? (
+                <div className="flex items-center space-x-3">
+                  <div className="text-sm text-gray-600">
+                    <i className="fas fa-user mr-2"></i>
+                    {user?.email}
+                  </div>
+                  <button
+                    onClick={handleLogout}
+                    className="text-sm bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700"
+                  >
+                    <i className="fas fa-sign-out-alt mr-1"></i>
+                    Logout
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={handleGoogleLogin}
+                  className="text-sm bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 flex items-center"
+                >
+                  <i className="fab fa-google mr-2"></i>
+                  Login with Google
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -96,6 +219,20 @@ function App() {
             Legal Query Interface
           </h2>
           
+          {!isAuthenticated ? (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+              <div className="flex items-center">
+                <i className="fas fa-exclamation-triangle text-yellow-400 mr-3"></i>
+                <div>
+                  <h3 className="text-sm font-medium text-yellow-800">Authentication Required</h3>
+                  <p className="text-sm text-yellow-700 mt-1">
+                    Please log in with Google to submit legal queries and access your query history.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : null}
+          
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label htmlFor="query" className="block text-sm font-medium text-gray-700 mb-2">
@@ -108,14 +245,14 @@ function App() {
                 placeholder="e.g., What precedents should I review for environmental harm writ applications?"
                 className="input-field"
                 rows="3"
-                disabled={loading}
+                disabled={loading || !isAuthenticated}
               />
             </div>
             
             <div className="flex flex-wrap gap-2">
               <button
                 type="submit"
-                disabled={loading || !query.trim()}
+                disabled={loading || !query.trim() || !isAuthenticated}
                 className="btn-primary"
               >
                 {loading ? (
