@@ -23,10 +23,10 @@ async def google_callback(request: Request):
     try:
         token = await oauth.google.authorize_access_token(request)
         user_info = await get_user_info(token['access_token'])
-        
+
         # Generate unique user ID
         user_id = str(uuid.uuid4())
-        
+
         # Store user in MongoDB
         user_data = {
             "user_id": user_id,
@@ -37,22 +37,22 @@ async def google_callback(request: Request):
             "created_at": datetime.utcnow(),
             "last_login": datetime.utcnow()
         }
-        
+
         # Check if user already exists
         existing_user = get_user_by_email(user_info.get('email'))
         if existing_user:
             user_id = existing_user['user_id']
             user_data['last_login'] = datetime.utcnow()
-        
+
         store_user(user_data)
-        
+
         # Create JWT token
         access_token = create_access_token(user_id, user_info.get('email'))
-        
+
         # Redirect to frontend with token
         frontend_url = f"http://localhost:3000/auth/callback?token={access_token}"
         return RedirectResponse(url=frontend_url)
-        
+
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

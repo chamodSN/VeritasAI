@@ -32,11 +32,12 @@ async def handle_query(payload: QueryPayload, current_user: dict = Depends(get_c
     try:
         user_id = current_user["user_id"]
         result = orchestrate_query(payload.query, user_id)
-        
+
         # Store query and result in MongoDB
-        store_query(user_id, {"query": payload.query, "timestamp": datetime.utcnow()})
+        store_query(user_id, {"query": payload.query,
+                    "timestamp": datetime.utcnow()})
         store_result(user_id, result)
-        
+
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

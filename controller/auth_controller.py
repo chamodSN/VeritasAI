@@ -16,7 +16,8 @@ oauth.register(
 )
 
 # JWT Configuration
-JWT_SECRET = Config.JWT_SECRET if hasattr(Config, 'JWT_SECRET') else secrets.token_urlsafe(32)
+JWT_SECRET = Config.JWT_SECRET if hasattr(
+    Config, 'JWT_SECRET') else secrets.token_urlsafe(32)
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 24
 
