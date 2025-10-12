@@ -65,3 +65,7 @@ test_frontend.py
 test_atlas.py
 tests/test_system.py
 test_system.py
+
+# Ignore dependencies installed by npm or yarn
+node_modules/
+
