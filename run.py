@@ -9,6 +9,55 @@ from view.auth_view import router as auth_router
 from common.logging import setup_logging
 from common.config import Config
 import os
+import nltk
+import subprocess
+import sys
+
+
+def initialize_nltk():
+    """Initialize NLTK data if not already downloaded"""
+    try:
+        nltk.data.find('corpora/wordnet')
+        nltk.data.find('corpora/stopwords')
+    except LookupError:
+        print("Downloading NLTK data...")
+        nltk.download('wordnet', quiet=True)
+        nltk.download('stopwords', quiet=True)
+        print("✓ NLTK data downloaded")
+
+
+def check_spacy_model():
+    """Check if spaCy model is available"""
+    try:
+        import spacy
+        spacy.load("en_core_web_sm")
+    except OSError:
+        print("Warning: spaCy model 'en_core_web_sm' not found.")
+        print("Install it with: python -m spacy download en_core_web_sm")
+
+
+def create_directories():
+    """Create necessary directories"""
+    directories = ["logs", "data/embeddings"]
+    for directory in directories:
+        os.makedirs(directory, exist_ok=True)
+
+
+def initialize_app():
+    """Initialize the application with necessary setup"""
+    print("Initializing VeritasAI...")
+
+    # Create directories
+    create_directories()
+
+    # Initialize NLTK
+    initialize_nltk()
+
+    # Check spaCy model
+    check_spacy_model()
+
+    print("✓ Application initialized successfully")
+
 
 app = FastAPI(title="VeritasAI Legal Multi-Agent System", version="1.0.0")
 
@@ -54,4 +103,8 @@ async def health_check():
 setup_logging()
 
 if __name__ == "__main__":
+    # Initialize the application
+    initialize_app()
+
+    # Start the server
     uvicorn.run(app, host="0.0.0.0", port=8000)

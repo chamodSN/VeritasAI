@@ -12,13 +12,18 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
 
-  // Sample queries for quick testing
+  // Sample queries for CourtListener API testing
   const sampleQueries = [
-    "What are the key legal issues in SCFR 531/2012?",
-    "What precedents exist for writ applications?",
-    "What are the constitutional rights violations?",
-    "What defenses are available for public officers?",
-    "How to prove Article 12(1) violations?"
+    "contract breach damages remedies",
+    "constitutional rights violations first amendment",
+    "employment discrimination workplace harassment",
+    "intellectual property patent infringement",
+    "criminal procedure fourth amendment search",
+    "family law divorce custody rights",
+    "bankruptcy debt relief chapter 7",
+    "environmental law pollution regulations",
+    "tax law deductions exemptions",
+    "property law real estate disputes"
   ];
 
   // Authentication functions
@@ -76,7 +81,7 @@ function App() {
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const token = urlParams.get('token');
-    
+
     if (token) {
       setAuthToken(token);
       // Clean up URL
@@ -139,7 +144,7 @@ function App() {
 
   const ResultSection = ({ title, icon, iconColor, content }) => {
     if (!content) return null;
-    
+
     return (
       <div className="card">
         <h3 className="text-xl font-bold text-gray-900 mb-4">
@@ -167,7 +172,7 @@ function App() {
               </div>
               <div className="ml-4">
                 <h1 className="text-3xl font-bold text-gray-900">VeritasAI</h1>
-                <p className="text-sm text-gray-600">Legal Multi-Agent Research System</p>
+                <p className="text-sm text-gray-600">Legal Multi-Agent Research System with CourtListener API</p>
               </div>
             </div>
             <div className="flex items-center space-x-4">
@@ -175,7 +180,7 @@ function App() {
                 <i className="fas fa-server mr-2"></i>
                 API: {apiUrl}
               </div>
-              
+
               {/* Authentication Section */}
               {authLoading ? (
                 <div className="text-sm text-gray-500">
@@ -218,7 +223,7 @@ function App() {
             <i className="fas fa-search mr-2 text-primary-600"></i>
             Legal Query Interface
           </h2>
-          
+
           {!isAuthenticated ? (
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
               <div className="flex items-center">
@@ -232,7 +237,7 @@ function App() {
               </div>
             </div>
           ) : null}
-          
+
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label htmlFor="query" className="block text-sm font-medium text-gray-700 mb-2">
@@ -242,13 +247,13 @@ function App() {
                 id="query"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="e.g., What precedents should I review for environmental harm writ applications?"
+                placeholder="e.g., contract breach damages remedies, constitutional rights violations, employment discrimination..."
                 className="input-field"
                 rows="3"
                 disabled={loading || !isAuthenticated}
               />
             </div>
-            
+
             <div className="flex flex-wrap gap-2">
               <button
                 type="submit"
@@ -267,7 +272,7 @@ function App() {
                   </>
                 )}
               </button>
-              
+
               <button
                 type="button"
                 onClick={() => setQuery('')}
@@ -343,6 +348,36 @@ function App() {
               content={results.citations}
             />
 
+            {/* Case Count and Source */}
+            {results.case_count && (
+              <div className="card">
+                <h3 className="text-xl font-bold text-gray-900 mb-4">
+                  <i className="fas fa-database mr-2 text-indigo-600"></i>
+                  Search Results
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-blue-50 p-4 rounded-lg">
+                    <div className="flex items-center">
+                      <i className="fas fa-file-alt text-blue-600 mr-3"></i>
+                      <div>
+                        <p className="text-sm font-medium text-blue-800">Cases Found</p>
+                        <p className="text-2xl font-bold text-blue-900">{results.case_count}</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-green-50 p-4 rounded-lg">
+                    <div className="flex items-center">
+                      <i className="fas fa-server text-green-600 mr-3"></i>
+                      <div>
+                        <p className="text-sm font-medium text-green-800">Data Source</p>
+                        <p className="text-lg font-bold text-green-900">{results.source || 'CourtListener API'}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <ResultSection
               title="Analytics & Patterns"
               icon="fa-chart-line"
@@ -359,7 +394,7 @@ function App() {
                 </h3>
                 <div className="flex items-center">
                   <div className="flex-1 bg-gray-200 rounded-full h-4 mr-4">
-                    <div 
+                    <div
                       className="bg-primary-600 h-4 rounded-full transition-all duration-500"
                       style={{ width: `${results.confidence * 100}%` }}
                     ></div>
@@ -381,10 +416,11 @@ function App() {
               How to Use VeritasAI
             </h3>
             <ul className="text-blue-700 space-y-2">
-              <li>• Enter your legal query in the text area above</li>
-              <li>• Click "Submit Query" to process your request</li>
-              <li>• The system will analyze your legal documents and provide insights</li>
-              <li>• Results include summaries, legal issues, arguments, and citations</li>
+              <li>• Enter your legal query using keywords (e.g., "contract breach", "constitutional rights")</li>
+              <li>• Click "Submit Query" to search CourtListener API for relevant cases</li>
+              <li>• The system will analyze federal court cases and provide comprehensive insights</li>
+              <li>• Results include case summaries, legal issues, arguments, and verified citations</li>
+              <li>• Try the sample queries below to get started</li>
               <li>• Make sure the VeritasAI server is running at {apiUrl}</li>
             </ul>
           </div>
