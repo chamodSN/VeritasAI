@@ -1,4 +1,4 @@
-from agents.citation.citation_agent import citation_agent
+from agents.citation_agent import citation_agent
 from crewai import Task, Crew
 from common.logging import setup_logging
 
@@ -8,10 +8,10 @@ logger = setup_logging()
 def verify_citations(citations: list):
     """
     Verify a list of legal citations using the citation agent.
-
+    
     Args:
         citations: List of citation strings to verify
-
+        
     Returns:
         Verification report with detailed analysis
     """
@@ -24,13 +24,12 @@ def verify_citations(citations: list):
             "invalid_citations": [],
             "recommendations": []
         }
-
+    
     logger.info(f"Verifying {len(citations)} citations")
-
+    
     # Create detailed task description
-    citations_text = "\n".join(
-        [f"{i+1}. {citation}" for i, citation in enumerate(citations)])
-
+    citations_text = "\n".join([f"{i+1}. {citation}" for i, citation in enumerate(citations)])
+    
     task = Task(
         description=f"""Verify the following legal citations for accuracy, format compliance, and authenticity:
 
@@ -56,17 +55,17 @@ Focus on:
 - Confidence assessments
 - Specific correction suggestions"""
     )
-
+    
     crew = Crew(
         agents=[citation_agent],
         tasks=[task],
         verbose=True
     )
-
+    
     try:
         result = crew.kickoff()
         logger.info("Citation verification completed successfully")
-
+        
         # Parse the result and return structured data
         verification_result = {
             "status": "completed",
@@ -75,9 +74,9 @@ Focus on:
             "total_citations": len(citations),
             "verification_details": str(result.raw) if hasattr(result, 'raw') else str(result)
         }
-
+        
         return verification_result
-
+        
     except Exception as e:
         logger.error(f"Error during citation verification: {str(e)}")
         return {
