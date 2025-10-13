@@ -21,3 +21,8 @@ torch
 transformers
 python-multipart
 itsdangerous
+court-listener
+spacy
+nltk
+scikit-learn
+numpy

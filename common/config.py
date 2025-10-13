@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
 class Config:
     LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai_api")
     MODEL_NAME = os.getenv("LLM_MODEL", "gpt-4o-mini")
@@ -18,3 +19,4 @@ class Config:
     SESSION_SECRET_KEY = os.getenv("SESSION_SECRET_KEY")
     JWT_SECRET = os.getenv("JWT_SECRET")
     DATA_PATH = os.getenv("DATA_PATH", "./data/corpus/")
+    COURTLISTENER_API_KEY = os.getenv("COURTLISTENER_API_KEY")
