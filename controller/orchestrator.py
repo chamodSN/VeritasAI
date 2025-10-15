@@ -13,7 +13,6 @@ from typing import Dict, Any, List
 
 logger = setup_logging()
 
-
 def orchestrate_query(query: str, user_id: str) -> Dict[str, Any]:
     """
     Orchestrate a legal research query using CourtListener API
@@ -25,9 +24,13 @@ def orchestrate_query(query: str, user_id: str) -> Dict[str, Any]:
     logger.info("=" * 60)
 
     try:
-        # Step 1: Retrieve cases from CourtListener API
+        # Step 1: Refine query for better citation-rich results
+        refined_query = f'"{query}" type:opinions precedential:true'  # Focus on precedential opinions
+        logger.info("Refined Query: %s", refined_query)
+
+        # Step 2: Retrieve cases from CourtListener API
         logger.info("STEP 1: Retrieving documents from CourtListener API")
-        docs = retrieve_documents(query, k=10)
+        docs = retrieve_documents(refined_query, k=10)
         logger.info("Retrieved %d documents", len(docs) if docs else 0)
 
         if not docs:
@@ -39,7 +42,8 @@ def orchestrate_query(query: str, user_id: str) -> Dict[str, Any]:
                 "arguments": "Unable to generate arguments without case data",
                 "citations": [],
                 "analytics": "No data available for analysis",
-                "confidence": 0.0
+                "confidence": 0.0,
+                "suggestion": "Try a more specific query or check case names (e.g., 'contract breach damages remedies site:law.cornell.edu')."
             }
 
         # Log document details
@@ -47,7 +51,7 @@ def orchestrate_query(query: str, user_id: str) -> Dict[str, Any]:
             logger.info("Document %d: %d characters, metadata: %s",
                         i+1, len(doc.page_content), doc.metadata)
 
-        # Step 2: Extract and process text content
+        # Step 3: Extract and process text content
         logger.info("STEP 2: Extracting and processing text content")
         doc_texts = [doc.page_content for doc in docs]
         logger.info("Extracted text from %d documents", len(doc_texts))
@@ -82,7 +86,7 @@ def orchestrate_query(query: str, user_id: str) -> Dict[str, Any]:
         logger.info("Processing %d cases with %d characters of text",
                     len(docs), len(combined_text))
 
-        # Step 3: Extract issues from documents
+        # Step 4: Extract issues from documents
         logger.info("STEP 3: Extracting legal issues")
         try:
             issues = extract_issues(combined_text)
@@ -92,7 +96,7 @@ def orchestrate_query(query: str, user_id: str) -> Dict[str, Any]:
             logger.error("Error extracting issues: %s", e)
             issues = []
 
-        # Step 4: Generate summaries
+        # Step 5: Generate summaries
         logger.info("STEP 4: Generating case summaries")
         try:
             summary_task = Task(
@@ -112,16 +116,20 @@ def orchestrate_query(query: str, user_id: str) -> Dict[str, Any]:
             logger.error("Error generating summaries: %s", e)
             summaries = "Error occurred during summarization"
 
-        # Step 5: Extract and verify citations
+        # Step 6: Extract and verify citations
         logger.info("STEP 5: Extracting and verifying citations")
         try:
-            # Extract citations from FULL documents (not truncated) to capture citations at the end
-            raw_citations = extract_citations_from_documents(doc_texts)
+            # Extract citations from FULL documents with metadata
+            raw_citations = extract_citations_from_documents(docs)  # Pass docs with metadata
             logger.info("Extracted %d raw citations from full documents", len(raw_citations))
-            citations_for_verification = format_citations_for_verification(
-                raw_citations)
-            logger.info("Formatted %d citations for verification",
-                        len(citations_for_verification))
+
+            if not raw_citations:
+                logger.warning("No raw citations extracted; attempting metadata enrichment fallback")
+                raw_citations = enrich_citations_from_metadata(docs)
+
+            # Format citations for verification
+            citations_for_verification = format_citations_for_verification(raw_citations)
+            logger.info("Formatted %d citations for verification", len(citations_for_verification))
 
             # Verify citations using CourtListener API
             verified_citations = verify_citations(citations_for_verification)
@@ -149,7 +157,7 @@ def orchestrate_query(query: str, user_id: str) -> Dict[str, Any]:
             logger.error("Error generating arguments: %s", e)
             arguments = "Error occurred during argument generation"
 
-        # Step 7: Generate analytics
+        # Step 8: Generate analytics
         logger.info("STEP 7: Generating analytics and patterns")
         try:
             analytics_task = Task(
@@ -169,7 +177,7 @@ def orchestrate_query(query: str, user_id: str) -> Dict[str, Any]:
             logger.error("Error generating analytics: %s", e)
             analytics = "Error occurred during analytics generation"
 
-        # Step 8: Calculate confidence and compile results
+        # Step 9: Calculate confidence and compile results
         logger.info("STEP 8: Calculating confidence and compiling results")
         try:
             confidence = calculate_confidence(docs, verified_citations)
@@ -228,7 +236,6 @@ def orchestrate_query(query: str, user_id: str) -> Dict[str, Any]:
             "confidence": 0.0
         }
 
-
 def calculate_confidence(docs: List, verified_citations: List) -> float:
     """Calculate confidence score based on case quality and quantity"""
     if not docs:
@@ -256,7 +263,6 @@ def calculate_confidence(docs: List, verified_citations: List) -> float:
         citation_factor + precedential_factor
     return min(confidence, 1.0)  # Cap at 1.0
 
-
 def serialize_results(result: Dict[str, Any]) -> Dict[str, Any]:
     """Serialize results for API response"""
     serialized_result = {}
@@ -267,7 +273,6 @@ def serialize_results(result: Dict[str, Any]) -> Dict[str, Any]:
             serialized_result[key] = value
 
     return serialized_result
-
 
 def get_case_alerts(query: str, _user_id: str) -> Dict[str, Any]:
     """Create alerts for new cases matching the query"""
@@ -292,3 +297,24 @@ def get_case_alerts(query: str, _user_id: str) -> Dict[str, Any]:
             "success": False,
             "message": f"Error creating alert: {str(e)}"
         }
+
+def enrich_citations_from_metadata(docs: List[Dict]) -> List[Dict[str, Any]]:
+    """
+    Fallback to enrich citations using document metadata when text extraction fails.
+    """
+    enriched_citations = []
+    for i, doc in enumerate(docs):
+        if 'caseName' in doc.metadata and 'cite' in doc.metadata:
+            citation_text = f"{doc.metadata['caseName']} {doc.metadata['cite']} ({doc.metadata.get('court', 'Unknown')} {doc.metadata.get('date_filed', 'Unknown')[:4]})"
+            citation = {
+                "text": citation_text,
+                "type": "case_citation",
+                "context": doc.page_content[max(0, len(doc.page_content)-50):] if doc.page_content else "No context",
+                "position": 0,
+                "groups": (doc.metadata['caseName'], doc.metadata['cite'].split()[0], doc.metadata['cite'].split()[1], doc.metadata.get('court'), doc.metadata.get('date_filed', 'Unknown')[:4]),
+                "document_index": i,
+                "document_length": len(doc.page_content)
+            }
+            enriched_citations.append(citation)
+    logger.info(f"Enriched {len(enriched_citations)} citations from metadata")
+    return enriched_citations

@@ -4,14 +4,14 @@ from common.logging import setup_logging
 
 logger = setup_logging()
 
-def extract_citations_from_text(text: str) -> List[Dict[str, Any]]:
+def extract_citations_from_text(text: str, metadata: Dict = None) -> List[Dict[str, Any]]:
     """
     Extract legal citations from text using regex patterns.
     Returns a list of citation dictionaries with metadata.
     """
     citations = []
     
-    # Common legal citation patterns
+    # Refined legal citation patterns (excluding agencies, doctrines, and court names)
     patterns = [
         # Complete case citations (e.g., "Smith v. Jones, 123 F.3d 456 (9th Cir. 2020)")
         r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+v\.\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*),\s+(\d+)\s+([A-Za-z\.\d]+)\s+(\d+)\s+\(([^)]+)\)',
@@ -36,18 +36,6 @@ def extract_citations_from_text(text: str) -> List[Dict[str, Any]]:
         
         # General citation pattern (volume reporter page)
         r'(\d+)\s+([A-Z][a-z]+(?:\.[A-Z][a-z]+)*)\s+(\d+)',
-        
-        # Simple case name patterns (e.g., "Smith v. Jones")
-        r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+v\.\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)',
-        
-        # Legal concepts and agencies (e.g., "EEOC", "Title VII", "ADA")
-        r'\b(?:EEOC|ADA|ADEA|EPA|Title VII|Civil Rights Act|Americans with Disabilities Act|Age Discrimination in Employment Act|Equal Pay Act)\b',
-        
-        # Legal doctrines and rules (e.g., "collateral source rule", "McDonnell Douglas framework")
-        r'\b(?:collateral source rule|McDonnell Douglas framework|burden-shifting framework|disparate treatment|disparate impact|hostile work environment)\b',
-        
-        # Court names (e.g., "Supreme Court", "Ninth Circuit")
-        r'\b(?:Supreme Court|Court of Appeals|District Court|Circuit Court|Ninth Circuit|Second Circuit|Federal Circuit)\b',
     ]
     
     # Pattern names for better identification
@@ -55,15 +43,11 @@ def extract_citations_from_text(text: str) -> List[Dict[str, Any]]:
         "case_citation",
         "federal_reporter",
         "supreme_court",
-        "state_citation", 
+        "state_citation",
         "statutory_citation",
-        "law_review",
         "law_review_with_year",
-        "general_citation",
-        "case_name_only",
-        "legal_agency",
-        "legal_doctrine",
-        "court_name"
+        "law_review",
+        "general_citation"
     ]
     
     for i, pattern in enumerate(patterns):
@@ -87,14 +71,11 @@ def extract_citations_from_text(text: str) -> List[Dict[str, Any]]:
             # Avoid duplicates and prefer longer matches
             is_duplicate = False
             for i, existing_citation in enumerate(citations):
-                # Check for exact text match (case insensitive)
                 if existing_citation["text"].lower() == citation_text.lower():
                     is_duplicate = True
                     break
-                # Check for overlapping positions (prefer longer matches)
                 if (citation["position"] < existing_citation["position"] + len(existing_citation["text"]) and 
                     citation["position"] + len(citation_text) > existing_citation["position"]):
-                    # If current citation is longer, replace the existing one
                     if len(citation_text) > len(existing_citation["text"]):
                         citations[i] = citation
                         is_duplicate = True
@@ -106,20 +87,33 @@ def extract_citations_from_text(text: str) -> List[Dict[str, Any]]:
             if not is_duplicate:
                 citations.append(citation)
     
-    # Sort by position in text
-    citations.sort(key=lambda x: x["position"])
-    
-    logger.info(f"Extracted {len(citations)} citations from text")
-    return citations
+    # Post-filter to skip case-name-only matches unless they have volume/page hints
+    valid_citations = [c for c in citations if re.search(r'\d+\s+[A-Za-z\.]+\s+\d+', c['text']) or 
+                      ('v.' in c['text'] and any(g for g in c.get('groups', []) if g and re.search(r'\d+', g)))]
 
-def extract_citations_from_documents(documents: List[str]) -> List[Dict[str, Any]]:
+    # Enrich with metadata if available
+    if metadata and valid_citations:
+        for citation in valid_citations:
+            if 'caseName' in metadata and citation['type'] == 'case_citation':
+                citation['enriched_text'] = f"{metadata['caseName']} {citation['text']} ({metadata.get('court', 'Unknown')} {metadata.get('date_filed', 'Unknown')[:4]})"
+            elif 'cite' in metadata:
+                citation['enriched_text'] = f"{metadata.get('caseName', citation['text'])} {metadata['cite']} ({metadata.get('court', 'Unknown')} {metadata.get('date_filed', 'Unknown')[:4]})"
+
+    # Sort by position in text
+    valid_citations.sort(key=lambda x: x["position"])
+    
+    logger.info(f"Extracted {len(valid_citations)} valid citations from text")
+    return valid_citations
+
+def extract_citations_from_documents(documents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    Extract citations from a list of document texts.
+    Extract citations from a list of document texts with metadata.
     """
     all_citations = []
     
-    for i, doc_text in enumerate(documents):
-        doc_citations = extract_citations_from_text(doc_text)
+    for i, doc in enumerate(documents):
+        doc_text = doc.get('page_content', '')
+        doc_citations = extract_citations_from_text(doc_text, metadata=doc.get('metadata', {}))
         
         # Add document index to each citation
         for citation in doc_citations:
@@ -133,9 +127,10 @@ def extract_citations_from_documents(documents: List[str]) -> List[Dict[str, Any
     seen_texts = set()
     
     for citation in all_citations:
-        if citation["text"] not in seen_texts:
+        text_to_check = citation.get('enriched_text', citation['text'])
+        if text_to_check not in seen_texts:
             unique_citations.append(citation)
-            seen_texts.add(citation["text"])
+            seen_texts.add(text_to_check)
     
     logger.info(f"Found {len(unique_citations)} unique citations across {len(documents)} documents")
     return unique_citations
@@ -147,7 +142,8 @@ def format_citations_for_verification(citations: List[Dict[str, Any]]) -> List[s
     formatted = []
     
     for citation in citations:
-        formatted_citation = f"Citation: {citation['text']} (Type: {citation['type']})"
+        text_to_use = citation.get('enriched_text', citation['text'])
+        formatted_citation = f"Citation: {text_to_use} (Type: {citation['type']})"
         if citation.get('context'):
             formatted_citation += f" | Context: {citation['context'][:100]}..."
         formatted.append(formatted_citation)
