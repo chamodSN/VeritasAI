@@ -115,8 +115,9 @@ def orchestrate_query(query: str, user_id: str) -> Dict[str, Any]:
         # Step 5: Extract and verify citations
         logger.info("STEP 5: Extracting and verifying citations")
         try:
-            raw_citations = extract_citations_from_documents(limited_doc_texts)
-            logger.info("Extracted %d raw citations", len(raw_citations))
+            # Extract citations from FULL documents (not truncated) to capture citations at the end
+            raw_citations = extract_citations_from_documents(doc_texts)
+            logger.info("Extracted %d raw citations from full documents", len(raw_citations))
             citations_for_verification = format_citations_for_verification(
                 raw_citations)
             logger.info("Formatted %d citations for verification",
@@ -130,8 +131,6 @@ def orchestrate_query(query: str, user_id: str) -> Dict[str, Any]:
             raw_citations = []
             verified_citations = []
 
-        # Step 6: Generate arguments
-        logger.info("STEP 6: Generating legal arguments")
         try:
             arg_task = Task(
                 description=f"Generate comprehensive legal arguments for query '{query}' using identified issues: {issues} and case summaries: {summaries}. Focus on precedential value and legal reasoning.",

@@ -13,8 +13,8 @@ def extract_citations_from_text(text: str) -> List[Dict[str, Any]]:
     
     # Common legal citation patterns
     patterns = [
-        # Case citations (e.g., "Smith v. Jones, 123 F.3d 456 (9th Cir. 2020)")
-        r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+))\s+v\.\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)),\s+(\d+)\s+([A-Za-z\.]+)\s+(\d+)\s+\(([^)]+)\)',
+        # Complete case citations (e.g., "Smith v. Jones, 123 F.3d 456 (9th Cir. 2020)")
+        r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+v\.\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*),\s+(\d+)\s+([A-Za-z\.\d]+)\s+(\d+)\s+\(([^)]+)\)',
         
         # Federal Reporter citations (e.g., "123 F.3d 456")
         r'(\d+)\s+([Ff]\.(?:2d|3d|Supp\.)?)\s+(\d+)',
@@ -28,11 +28,26 @@ def extract_citations_from_text(text: str) -> List[Dict[str, Any]]:
         # Statutory citations (e.g., "42 U.S.C. § 1983")
         r'(\d+)\s+U\.S\.C\.\s+§\s+(\d+)',
         
-        # Law review citations (e.g., "123 Harv. L. Rev. 456")
-        r'(\d+)\s+([A-Z][a-z]+\.\s+[A-Z][a-z]+\.\s+Rev\.)\s+(\d+)',
+        # Law review citations with year (e.g., "123 Harv. L. Rev. 456 (2020)")
+        r'(\d+)\s+([A-Z][a-z]+\.\s+[A-Z]\.\s+Rev\.)\s+(\d+)\s+\((\d+)\)',
+        
+        # Law review citations without year (e.g., "123 Harv. L. Rev. 456")
+        r'(\d+)\s+([A-Z][a-z]+\.\s+[A-Z]\.\s+Rev\.)\s+(\d+)',
         
         # General citation pattern (volume reporter page)
         r'(\d+)\s+([A-Z][a-z]+(?:\.[A-Z][a-z]+)*)\s+(\d+)',
+        
+        # Simple case name patterns (e.g., "Smith v. Jones")
+        r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+v\.\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)',
+        
+        # Legal concepts and agencies (e.g., "EEOC", "Title VII", "ADA")
+        r'\b(?:EEOC|ADA|ADEA|EPA|Title VII|Civil Rights Act|Americans with Disabilities Act|Age Discrimination in Employment Act|Equal Pay Act)\b',
+        
+        # Legal doctrines and rules (e.g., "collateral source rule", "McDonnell Douglas framework")
+        r'\b(?:collateral source rule|McDonnell Douglas framework|burden-shifting framework|disparate treatment|disparate impact|hostile work environment)\b',
+        
+        # Court names (e.g., "Supreme Court", "Ninth Circuit")
+        r'\b(?:Supreme Court|Court of Appeals|District Court|Circuit Court|Ninth Circuit|Second Circuit|Federal Circuit)\b',
     ]
     
     # Pattern names for better identification
@@ -43,7 +58,12 @@ def extract_citations_from_text(text: str) -> List[Dict[str, Any]]:
         "state_citation", 
         "statutory_citation",
         "law_review",
-        "general_citation"
+        "law_review_with_year",
+        "general_citation",
+        "case_name_only",
+        "legal_agency",
+        "legal_doctrine",
+        "court_name"
     ]
     
     for i, pattern in enumerate(patterns):
@@ -64,8 +84,26 @@ def extract_citations_from_text(text: str) -> List[Dict[str, Any]]:
                 "groups": match.groups()
             }
             
-            # Avoid duplicates
-            if not any(c["text"] == citation_text for c in citations):
+            # Avoid duplicates and prefer longer matches
+            is_duplicate = False
+            for i, existing_citation in enumerate(citations):
+                # Check for exact text match (case insensitive)
+                if existing_citation["text"].lower() == citation_text.lower():
+                    is_duplicate = True
+                    break
+                # Check for overlapping positions (prefer longer matches)
+                if (citation["position"] < existing_citation["position"] + len(existing_citation["text"]) and 
+                    citation["position"] + len(citation_text) > existing_citation["position"]):
+                    # If current citation is longer, replace the existing one
+                    if len(citation_text) > len(existing_citation["text"]):
+                        citations[i] = citation
+                        is_duplicate = True
+                        break
+                    else:
+                        is_duplicate = True
+                        break
+            
+            if not is_duplicate:
                 citations.append(citation)
     
     # Sort by position in text
