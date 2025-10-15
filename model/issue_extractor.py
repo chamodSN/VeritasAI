@@ -1,4 +1,4 @@
-from agents.issue_agent import issue_agent
+from agents.issue.issue_agent import issue_agent
 from crewai import Task, Crew
 import re
 
