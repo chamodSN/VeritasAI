@@ -29,12 +29,8 @@ def case_data_to_document(case: CaseData) -> LangDocument:
     if case.casebody:
         casebody_text = case.casebody.get('text', '')
         if casebody_text:
-            # Use more of the case text for better citation extraction
-            content_parts.append(f"Case Text: {casebody_text[:10000]}...")
-    else:
-        # If no casebody, try to extract from other fields
-        if hasattr(case, 'absolute_url') and case.absolute_url:
-            content_parts.append(f"Case URL: {case.absolute_url}")
+            # Limit text length
+            content_parts.append(f"Case Text: {casebody_text[:2000]}...")
 
     content = "\n".join(content_parts)
 
