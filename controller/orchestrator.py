@@ -7,17 +7,15 @@ from model.case_indexer import retrieve_documents
 from model.issue_extractor import extract_issues
 from model.citation_verifier import verify_citations
 from model.citation_extractor import extract_citations_from_documents, format_citations_for_verification
-from model.user_model import store_result 
 from common.logging import setup_logging
 from model.courtlistener_client import courtlistener_client
 from typing import Dict, Any, List
-from datetime import datetime
 
 logger = setup_logging()
 
 def orchestrate_query(query: str, user_id: str) -> Dict[str, Any]:
     """
-    Orchestrate a legal research query using CourtListener API with accountability mechanisms.
+    Orchestrate a legal research query using CourtListener API
     """
     logger.info("=" * 60)
     logger.info("STARTING ORCHESTRATION")
@@ -25,33 +23,19 @@ def orchestrate_query(query: str, user_id: str) -> Dict[str, Any]:
     logger.info("User ID: %s", user_id)
     logger.info("=" * 60)
 
-    # Initialize audit trail
-    audit_trail = {
-        "query": query,
-        "user_id": user_id,
-        "timestamp": datetime.now().isoformat(),
-        "steps": [],
-        "sources_checked": [],
-        "review_status": "PENDING"
-    }
-
     try:
         # Step 1: Refine query for better citation-rich results
         refined_query = f'"{query}" type:opinions precedential:true'  # Focus on precedential opinions
         logger.info("Refined Query: %s", refined_query)
-        audit_trail["steps"].append({"step": "query_refinement", "details": refined_query})
 
         # Step 2: Retrieve cases from CourtListener API
         logger.info("STEP 1: Retrieving documents from CourtListener API")
         docs = retrieve_documents(refined_query, k=10)
         logger.info("Retrieved %d documents", len(docs) if docs else 0)
-        audit_trail["steps"].append({"step": "document_retrieval", "count": len(docs) if docs else 0})
-        audit_trail["sources_checked"].append("CourtListener API")
 
         if not docs:
             logger.warning("No documents retrieved from CourtListener API")
-            audit_trail["steps"].append({"step": "document_retrieval_failed", "details": "No documents found"})
-            result = {
+            return {
                 "error": "No relevant cases found for the given query",
                 "summary": "No cases found",
                 "issues": [],
@@ -59,11 +43,8 @@ def orchestrate_query(query: str, user_id: str) -> Dict[str, Any]:
                 "citations": [],
                 "analytics": "No data available for analysis",
                 "confidence": 0.0,
-                "suggestion": "Try a more specific query or check case names (e.g., 'contract breach damages remedies site:law.cornell.edu').",
-                "audit_trail": audit_trail
+                "suggestion": "Try a more specific query or check case names (e.g., 'contract breach damages remedies site:law.cornell.edu')."
             }
-            store_result(user_id, result, audit_trail=audit_trail, review_status=audit_trail["review_status"])
-            return result
 
         # Log document details
         for i, doc in enumerate(docs):
@@ -74,7 +55,6 @@ def orchestrate_query(query: str, user_id: str) -> Dict[str, Any]:
         logger.info("STEP 2: Extracting and processing text content")
         doc_texts = [doc.page_content for doc in docs]
         logger.info("Extracted text from %d documents", len(doc_texts))
-        audit_trail["steps"].append({"step": "text_extraction", "document_count": len(doc_texts)})
 
         # Limit document text to prevent token overflow
         max_chars_per_doc = 3000  # Increased limit for CourtListener data
@@ -86,7 +66,6 @@ def orchestrate_query(query: str, user_id: str) -> Dict[str, Any]:
                 limited_doc_texts.append(limited_text)
                 logger.info("Document %d: Truncated from %d to %d characters",
                             i+1, original_length, len(limited_text))
-                audit_trail["steps"].append({"step": "text_truncation", "document": i+1, "original_length": original_length, "truncated_length": len(limited_text)})
             else:
                 limited_doc_texts.append(text)
                 logger.info("Document %d: %d characters (no truncation needed)",
@@ -100,7 +79,6 @@ def orchestrate_query(query: str, user_id: str) -> Dict[str, Any]:
             combined_text = combined_text[:max_total_chars] + "..."
             logger.info("Combined text truncated from %d to %d characters",
                         original_combined_length, len(combined_text))
-            audit_trail["steps"].append({"step": "combined_text_truncation", "original_length": original_combined_length, "truncated_length": len(combined_text)})
         else:
             logger.info("Combined text: %d characters (no truncation needed)",
                         len(combined_text))
@@ -114,11 +92,9 @@ def orchestrate_query(query: str, user_id: str) -> Dict[str, Any]:
             issues = extract_issues(combined_text)
             logger.info("Successfully extracted %d issues: %s",
                         len(issues), issues)
-            audit_trail["steps"].append({"step": "issue_extraction", "issue_count": len(issues)})
         except Exception as e:
             logger.error("Error extracting issues: %s", e)
             issues = []
-            audit_trail["steps"].append({"step": "issue_extraction_failed", "error": str(e)})
 
         # Step 5: Generate summaries
         logger.info("STEP 4: Generating case summaries")
@@ -136,49 +112,33 @@ def orchestrate_query(query: str, user_id: str) -> Dict[str, Any]:
             )
             summaries = summary_crew.kickoff()
             logger.info("Successfully generated summaries")
-            audit_trail["steps"].append({"step": "summary_generation", "success": True})
         except Exception as e:
             logger.error("Error generating summaries: %s", e)
             summaries = "Error occurred during summarization"
-            audit_trail["steps"].append({"step": "summary_generation_failed", "error": str(e)})
 
         # Step 6: Extract and verify citations
         logger.info("STEP 5: Extracting and verifying citations")
         try:
-            raw_citations = extract_citations_from_documents(docs)
+            # Extract citations from FULL documents with metadata
+            raw_citations = extract_citations_from_documents(docs)  # Pass docs with metadata
             logger.info("Extracted %d raw citations from full documents", len(raw_citations))
-            audit_trail["steps"].append({"step": "citation_extraction", "citation_count": len(raw_citations)})
 
             if not raw_citations:
                 logger.warning("No raw citations extracted; attempting metadata enrichment fallback")
                 raw_citations = enrich_citations_from_metadata(docs)
-                audit_trail["steps"].append({"step": "citation_enrichment", "citation_count": len(raw_citations)})
 
+            # Format citations for verification
             citations_for_verification = format_citations_for_verification(raw_citations)
             logger.info("Formatted %d citations for verification", len(citations_for_verification))
-            audit_trail["steps"].append({"step": "citation_formatting", "formatted_count": len(citations_for_verification)})
 
+            # Verify citations using CourtListener API
             verified_citations = verify_citations(citations_for_verification)
             logger.info("Verified %d citations", len(verified_citations))
-            audit_trail["steps"].append({"step": "citation_verification", "verified_count": len(verified_citations)})
-
-            # Check for NEEDS_REVIEW citations
-            needs_review = [c for c in verified_citations.get("verified_citations", []) if c.get("status") == "NEEDS_REVIEW"]
-            if needs_review:
-                audit_trail["review_status"] = "REQUIRES_HUMAN_REVIEW"
-                audit_trail["steps"].append({
-                    "step": "citation_review_flag",
-                    "details": f"{len(needs_review)} citations marked NEEDS_REVIEW",
-                    "citations": [c["citation"] for c in needs_review]
-                })
         except Exception as e:
             logger.error("Error processing citations: %s", e)
             raw_citations = []
             verified_citations = []
-            audit_trail["steps"].append({"step": "citation_processing_failed", "error": str(e)})
 
-        # Step 7: Generate arguments
-        logger.info("STEP 6: Generating arguments")
         try:
             arg_task = Task(
                 description=f"Generate comprehensive legal arguments for query '{query}' using identified issues: {issues} and case summaries: {summaries}. Focus on precedential value and legal reasoning.",
@@ -193,11 +153,9 @@ def orchestrate_query(query: str, user_id: str) -> Dict[str, Any]:
             )
             arguments = arg_crew.kickoff()
             logger.info("Successfully generated arguments")
-            audit_trail["steps"].append({"step": "argument_generation", "success": True})
         except Exception as e:
             logger.error("Error generating arguments: %s", e)
             arguments = "Error occurred during argument generation"
-            audit_trail["steps"].append({"step": "argument_generation_failed", "error": str(e)})
 
         # Step 8: Generate analytics
         logger.info("STEP 7: Generating analytics and patterns")
@@ -215,28 +173,15 @@ def orchestrate_query(query: str, user_id: str) -> Dict[str, Any]:
             )
             analytics = analytics_crew.kickoff()
             logger.info("Successfully generated analytics")
-            audit_trail["steps"].append({"step": "analytics_generation", "success": True})
         except Exception as e:
             logger.error("Error generating analytics: %s", e)
             analytics = "Error occurred during analytics generation"
-            audit_trail["steps"].append({"step": "analytics_generation_failed", "error": str(e)})
 
         # Step 9: Calculate confidence and compile results
         logger.info("STEP 8: Calculating confidence and compiling results")
         try:
             confidence = calculate_confidence(docs, verified_citations)
             logger.info("Calculated confidence: %f", confidence)
-            audit_trail["steps"].append({"step": "confidence_calculation", "confidence": confidence})
-
-            # Flag non-precedential cases for governance review
-            non_precedential = [doc for doc in docs if not doc.metadata.get('precedential')]
-            if non_precedential:
-                audit_trail["steps"].append({
-                    "step": "governance_check",
-                    "details": f"{len(non_precedential)} non-precedential cases detected, recommend human review",
-                    "case_ids": [doc.metadata.get('caseName', 'Unknown') for doc in non_precedential]
-                })
-                audit_trail["review_status"] = "REQUIRES_HUMAN_REVIEW"
 
             # Collate results
             result = {
@@ -248,15 +193,13 @@ def orchestrate_query(query: str, user_id: str) -> Dict[str, Any]:
                 "analytics": analytics,
                 "confidence": confidence,
                 "case_count": len(docs),
-                "source": "CourtListener API",
-                "accountability_note": ("Citations or cases marked NEEDS_REVIEW or non-precedential require human validation before use in legal arguments." 
-                                       if audit_trail["review_status"] == "REQUIRES_HUMAN_REVIEW" else "All outputs verified, but human review recommended for critical use."),
-                "audit_trail": audit_trail
+                "source": "CourtListener API"
             }
 
-            # Store results with accountability metadata
-            store_result(user_id, result, audit_trail=audit_trail, review_status=audit_trail["review_status"])
-            logger.info("Stored results for user: %s with review status: %s", user_id, audit_trail["review_status"])
+            # Store results
+            from model.user_model import store_result
+            store_result(user_id, result)
+            logger.info("Stored results for user: %s", user_id)
 
             # Return serialized results for API response
             serialized_result = serialize_results(result)
@@ -266,41 +209,32 @@ def orchestrate_query(query: str, user_id: str) -> Dict[str, Any]:
             logger.info("ORCHESTRATION COMPLETED SUCCESSFULLY")
             logger.info("Confidence: %f", confidence)
             logger.info("Case Count: %d", len(docs))
-            logger.info("Review Status: %s", audit_trail["review_status"])
             logger.info("=" * 60)
             return serialized_result
 
         except Exception as e:
             logger.error("Error in final result compilation: %s", e)
-            audit_trail["steps"].append({"step": "result_compilation_failed", "error": str(e)})
-            result = {
+            return {
                 "error": f"Error in final processing: {str(e)}",
                 "summary": "Error occurred during processing",
                 "issues": [],
                 "arguments": "Unable to generate arguments due to processing error",
                 "citations": [],
                 "analytics": "No analysis available due to error",
-                "confidence": 0.0,
-                "audit_trail": audit_trail
+                "confidence": 0.0
             }
-            store_result(user_id, result, audit_trail=audit_trail, review_status="ERROR")
-            return result
 
     except Exception as e:
         logger.error("Error in orchestration: %s", e)
-        audit_trail["steps"].append({"step": "orchestration_failed", "error": str(e)})
-        result = {
+        return {
             "error": f"Error processing query: {str(e)}",
             "summary": "Error occurred during processing",
             "issues": [],
             "arguments": "Unable to generate arguments due to processing error",
             "citations": [],
             "analytics": "No analysis available due to error",
-            "confidence": 0.0,
-            "audit_trail": audit_trail
+            "confidence": 0.0
         }
-        store_result(user_id, result, audit_trail=audit_trail, review_status="ERROR")
-        return result
 
 def calculate_confidence(docs: List, verified_citations: List) -> float:
     """Calculate confidence score based on case quality and quantity"""
@@ -310,10 +244,12 @@ def calculate_confidence(docs: List, verified_citations: List) -> float:
     base_confidence = 0.5
 
     # Factor in number of cases
+    # Up to 0.3 for having many cases
     case_count_factor = min(len(docs) / 10, 0.3)
 
     # Factor in citation verification
-    citation_factor = min(len(verified_citations.get("verified_citations", [])) / 5, 0.2)
+    # Up to 0.2 for verified citations
+    citation_factor = min(len(verified_citations) / 5, 0.2)
 
     # Factor in case precedential value
     precedential_factor = 0.0
@@ -323,7 +259,8 @@ def calculate_confidence(docs: List, verified_citations: List) -> float:
 
     precedential_factor = min(precedential_factor, 0.2)  # Cap at 0.2
 
-    confidence = base_confidence + case_count_factor + citation_factor + precedential_factor
+    confidence = base_confidence + case_count_factor + \
+        citation_factor + precedential_factor
     return min(confidence, 1.0)  # Cap at 1.0
 
 def serialize_results(result: Dict[str, Any]) -> Dict[str, Any]:
@@ -334,50 +271,32 @@ def serialize_results(result: Dict[str, Any]) -> Dict[str, Any]:
             serialized_result[key] = str(value.raw)
         else:
             serialized_result[key] = value
+
     return serialized_result
 
-def get_case_alerts(query: str, user_id: str) -> Dict[str, Any]:
+def get_case_alerts(query: str, _user_id: str) -> Dict[str, Any]:
     """Create alerts for new cases matching the query"""
-    audit_trail = {
-        "query": query,
-        "user_id": user_id,
-        "timestamp": datetime.now().isoformat(),
-        "steps": []
-    }
     try:
         alert_name = f"Alert for {query[:50]}..."
         alert_uri = courtlistener_client.create_alert(query, alert_name)
-        audit_trail["steps"].append({"step": "alert_creation", "alert_name": alert_name})
 
         if alert_uri:
-            audit_trail["steps"].append({"step": "alert_creation_success", "alert_uri": alert_uri})
-            result = {
+            return {
                 "success": True,
                 "alert_uri": alert_uri,
-                "message": f"Alert created successfully for query: {query}",
-                "audit_trail": audit_trail
+                "message": f"Alert created successfully for query: {query}"
             }
-            store_result(user_id, result, audit_trail=audit_trail, review_status="COMPLETED")
-            return result
         else:
-            audit_trail["steps"].append({"step": "alert_creation_failed", "details": "Failed to create alert"})
-            result = {
+            return {
                 "success": False,
-                "message": "Failed to create alert",
-                "audit_trail": audit_trail
+                "message": "Failed to create alert"
             }
-            store_result(user_id, result, audit_trail=audit_trail, review_status="ERROR")
-            return result
     except Exception as e:
         logger.error("Error creating alert: %s", e)
-        audit_trail["steps"].append({"step": "alert_creation_error", "error": str(e)})
-        result = {
+        return {
             "success": False,
-            "message": f"Error creating alert: {str(e)}",
-            "audit_trail": audit_trail
+            "message": f"Error creating alert: {str(e)}"
         }
-        store_result(user_id, result, audit_trail=audit_trail, review_status="ERROR")
-        return result
 
 def enrich_citations_from_metadata(docs: List[Dict]) -> List[Dict[str, Any]]:
     """
@@ -399,15 +318,3 @@ def enrich_citations_from_metadata(docs: List[Dict]) -> List[Dict[str, Any]]:
             enriched_citations.append(citation)
     logger.info(f"Enriched {len(enriched_citations)} citations from metadata")
     return enriched_citations
-
-def log_user_feedback(user_id: str, feedback: Dict[str, Any]) -> None:
-    """Log user feedback for accountability and system improvement"""
-    logger.info("Recording user feedback for user: %s, feedback: %s", user_id, feedback)
-    # Placeholder: Implement storage logic for feedback
-    audit_trail = {
-        "user_id": user_id,
-        "timestamp": datetime.now().isoformat(),
-        "feedback": feedback
-    }
-    # Store feedback with audit trail
-    store_result(user_id, {"feedback": feedback}, audit_trail=audit_trail, review_status="FEEDBACK")
