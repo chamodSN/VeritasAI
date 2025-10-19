@@ -1,4 +1,4 @@
-from agents.citation.citation_agent import citation_agent
+from agents.citation_agent import citation_agent
 from crewai import Task, Crew
 from common.logging import setup_logging
 
