@@ -2,13 +2,13 @@ from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.docstore.document import Document as LangDocument
 from common.config import Config
-from common.logging import setup_logging
+from common.logging import logger
 from model.courtlistener_client import courtlistener_client, CaseData
 from typing import List, Dict, Any
 import json
 
 embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-logger = setup_logging()
+logger = logger
 
 
 def case_data_to_document(case: CaseData) -> LangDocument:

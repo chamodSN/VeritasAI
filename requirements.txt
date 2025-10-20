@@ -26,3 +26,6 @@ spacy
 nltk
 scikit-learn
 numpy
+cryptography
+requests
+psutil

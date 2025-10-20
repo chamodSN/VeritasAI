@@ -3,23 +3,17 @@ CourtListener API v4 Client for Legal Case Research
 Handles keyword extraction, expansion, and case data retrieval
 """
 
-import os
 import time
 import requests
-import json
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from common.config import Config
-from common.logging import setup_logging
+from common.logging import logger
 import spacy
 import nltk
-from nltk.corpus import wordnet
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-import numpy as np
 from model.legal_term_expander import legal_term_expander
-
-logger = setup_logging()
 
 # Download required NLTK data
 try:
@@ -42,6 +36,7 @@ class CaseData:
     date_modified: str
     absolute_url: str
     resource_uri: str
+    cluster_id: str
     casebody: Optional[Dict[str, Any]] = None
     docket_number: Optional[str] = None
     citation_count: Optional[int] = None
@@ -122,7 +117,7 @@ class CourtListenerClient:
         return list(set(expanded))
 
     def search_cases(self, query: str, limit: int = 20) -> List[CaseData]:
-        """Search for cases using CourtListener API"""
+        """Search for cases using CourtListener API with enhanced data cleaning"""
         logger.info("Searching cases with query: '%s', limit: %d", query, limit)
 
         url = f"{self.base_url}/search/"
@@ -131,7 +126,10 @@ class CourtListenerClient:
             'stat_Precedential': 'on',
             'order_by': 'score desc',
             'stat_Non-Precedential': 'on',
-            'format': 'json'
+            'format': 'json',
+            'stat_Errata': 'on',  # Include errata
+            'stat_Separate': 'on',  # Include separate opinions
+            'stat_In-chambers': 'on'  # Include in-chambers opinions
         }
 
         logger.info("API URL: %s", url)
@@ -151,34 +149,33 @@ class CourtListenerClient:
             response.raise_for_status()
 
             data = response.json()
-            logger.info("API Response Data Keys: %s", list(
-                data.keys()) if isinstance(data, dict) else "Not a dict")
-
             results = data.get('results', [])
             logger.info("Found %d results in API response", len(results))
 
             cases = []
             for i, result in enumerate(results[:limit]):
-                logger.info("Processing result %d/%d",
-                            i+1, min(limit, len(results)))
+                
+                # Clean case data
+                case_name = self._clean_text(result.get('caseName', ''))
+                court = self._clean_text(result.get('court', ''))
+                nature_of_suit = self._clean_text(result.get('natureOfSuit', ''))
+                
                 case_data = CaseData(
-                    case_name=result.get('caseName', ''),
-                    court=result.get('court', ''),
+                    case_name=case_name,
+                    court=court,
                     date_filed=result.get('dateFiled', ''),
                     date_modified=result.get('dateModified', ''),
                     absolute_url=result.get('absolute_url', ''),
                     resource_uri=result.get('resource_uri', ''),
+                    cluster_id=str(result.get('cluster_id', '')),
                     docket_number=result.get('docketNumber', ''),
                     citation_count=result.get('citationCount', 0),
                     precedential=result.get('precedential', False),
-                    nature_of_suit=result.get('natureOfSuit', ''),
+                    nature_of_suit=nature_of_suit,
                     jurisdiction=result.get('jurisdiction', '')
                 )
                 cases.append(case_data)
-                logger.info("Created case: %s (%s)",
-                            case_data.case_name, case_data.court)
 
-            logger.info("Successfully processed %d cases", len(cases))
             return cases
 
         except requests.exceptions.RequestException as e:
@@ -187,6 +184,29 @@ class CourtListenerClient:
         except Exception as e:
             logger.error("Unexpected error searching cases: %s", e)
             return []
+
+    def _clean_text(self, text: str) -> str:
+        """Clean text by removing HTML tags, extra whitespace, and unnecessary characters"""
+        if not text:
+            return ""
+        
+        import re
+        
+        # Remove HTML tags
+        text = re.sub(r'<[^>]+>', '', text)
+        
+        # Remove extra whitespace and normalize
+        text = re.sub(r'\s+', ' ', text)
+        
+        # Remove special characters that might cause issues
+        text = re.sub(r'[^\w\s\.\,\;\:\!\?\-\(\)\[\]\"\']', '', text)
+        
+        # Remove excessive punctuation
+        text = re.sub(r'[.]{3,}', '...', text)
+        text = re.sub(r'[!]{2,}', '!', text)
+        text = re.sub(r'[?]{2,}', '?', text)
+        
+        return text.strip()
 
     def get_case_details(self, resource_uri: str) -> Optional[Dict[str, Any]]:
         """Get detailed case information including casebody"""
@@ -210,6 +230,81 @@ class CourtListenerClient:
         except requests.exceptions.RequestException as e:
             logger.error(f"Error getting case details: {e}")
             return None
+
+    def get_case_text(self, case_id: str) -> str:
+        """Get cleaned case text from CourtListener API"""
+        try:
+            # First get the case details
+            case_url = f"{self.base_url}/clusters/{case_id}/"
+            response = requests.get(case_url, headers=self.headers, timeout=30)
+            response.raise_for_status()
+            
+            case_data = response.json()
+            
+            # Get opinions for this case
+            opinions_url = f"{self.base_url}/opinions/"
+            opinions_params = {
+                'cluster': case_id,
+                'format': 'json'
+            }
+            
+            opinions_response = requests.get(
+                opinions_url, headers=self.headers, params=opinions_params, timeout=30)
+            opinions_response.raise_for_status()
+            
+            opinions_data = opinions_response.json()
+            opinions = opinions_data.get('results', [])
+            
+            # Combine all opinion text
+            combined_text = ""
+            for opinion in opinions:
+                # Try different text fields
+                text_content = None
+                if 'plain_text' in opinion and opinion['plain_text']:
+                    text_content = opinion['plain_text']
+                elif 'text' in opinion and opinion['text']:
+                    text_content = opinion['text']
+                elif 'html' in opinion and opinion['html']:
+                    text_content = opinion['html']
+                
+                if text_content:
+                    # Clean the opinion text
+                    cleaned_text = self._clean_text(text_content)
+                    if cleaned_text:
+                        combined_text += f"\n\n{cleaned_text}"
+            
+            # If no opinions found, try to get casebody
+            if not combined_text and 'casebody' in case_data:
+                casebody_url = case_data['casebody']
+                casebody_response = requests.get(
+                    casebody_url, headers=self.headers, timeout=30)
+                if casebody_response.status_code == 200:
+                    casebody_data = casebody_response.json()
+                    if 'text' in casebody_data:
+                        combined_text = self._clean_text(casebody_data['text'])
+            
+            return combined_text
+            
+        except Exception as e:
+            logger.error(f"Error getting case text for {case_id}: {e}")
+            return ""
+
+    def get_multiple_cases_text(self, case_ids: List[str]) -> Dict[str, str]:
+        """Get text for multiple cases efficiently"""
+        case_texts = {}
+        
+        for case_id in case_ids:
+            try:
+                text = self.get_case_text(case_id)
+                if text and len(text.strip()) > 100:  # Only include cases with substantial text
+                    case_texts[case_id] = text
+                else:
+                    logger.warning(f"Case {case_id} has insufficient text ({len(text)} chars)")
+            except Exception as e:
+                logger.error(f"Error processing case {case_id}: {e}")
+                continue
+                
+        return case_texts
 
     def get_opinions(self, case_id: str) -> List[Dict[str, Any]]:
         """Get opinions for a specific case"""
@@ -281,49 +376,39 @@ class CourtListenerClient:
 
         try:
             # Extract keywords
-            logger.info("STEP 1: Extracting keywords")
             keywords = self.extract_keywords(user_input)
             logger.info("Extracted keywords: %s", keywords)
 
             # Expand keywords
-            logger.info("STEP 2: Expanding keywords")
             expanded_keywords = self.expand_keywords(keywords)
             logger.info("Expanded keywords count: %d", len(expanded_keywords))
-            logger.info("First 10 expanded keywords: %s",
-                        expanded_keywords[:10])
 
             # Search with original query
-            logger.info("STEP 3: Searching with original query")
-            all_cases = self.search_cases(user_input, limit=max_cases // 3)
+            original_limit = max(1, max_cases // 2)
+            all_cases = self.search_cases(user_input, limit=original_limit)
             logger.info("Found %d cases with original query", len(all_cases))
 
             # Search with individual keywords
-            logger.info("STEP 4: Searching with individual keywords")
             # Limit to top 5 keywords to avoid rate limits
+            keyword_limit = max(1, max_cases // 8)
             for i, keyword in enumerate(keywords[:5]):
-                logger.info("Searching with keyword %d/%d: %s",
-                            i+1, min(5, len(keywords)), keyword)
-                cases = self.search_cases(keyword, limit=max_cases // 6)
-                logger.info("Found %d cases with keyword: %s",
-                            len(cases), keyword)
+                cases = self.search_cases(keyword, limit=keyword_limit)
                 all_cases.extend(cases)
                 time.sleep(0.5)  # Rate limiting
 
             # Search with expanded keywords (sample)
-            logger.info("STEP 5: Searching with expanded keywords")
             # Limit to avoid rate limits
             for i, keyword in enumerate(expanded_keywords[:3]):
                 if keyword not in keywords:  # Avoid duplicates
                     logger.info("Searching with expanded keyword %d/%d: %s",
                                 i+1, min(3, len(expanded_keywords)), keyword)
-                    cases = self.search_cases(keyword, limit=max_cases // 6)
+                    cases = self.search_cases(keyword, limit=keyword_limit)
                     logger.info(
                         "Found %d cases with expanded keyword: %s", len(cases), keyword)
                     all_cases.extend(cases)
                     time.sleep(0.5)  # Rate limiting
 
             # Remove duplicates based on resource_uri
-            logger.info("STEP 6: Removing duplicates")
             unique_cases = {}
             for case in all_cases:
                 if case.resource_uri not in unique_cases:
@@ -333,17 +418,34 @@ class CourtListenerClient:
             logger.info("After deduplication: %d unique cases",
                         len(final_cases))
 
+            # Filter cases by quality metrics
+            quality_cases = []
+            for case in final_cases:
+                # Prioritize precedential cases
+                if case.precedential:
+                    quality_cases.append((case, 1.0))
+                # Include cases with substantial citation count
+                elif case.citation_count and case.citation_count > 5:
+                    quality_cases.append((case, 0.8))
+                # Include recent cases (last 10 years)
+                elif case.date_filed and '2020' <= case.date_filed[:4] <= '2024':
+                    quality_cases.append((case, 0.6))
+                else:
+                    quality_cases.append((case, 0.4))
+
+            # Sort by quality score
+            quality_cases.sort(key=lambda x: x[1], reverse=True)
+            filtered_cases = [case for case, score in quality_cases]
+
             # Calculate similarity scores
-            logger.info("STEP 7: Calculating similarity scores")
             case_texts = [
-                f"{case.case_name} {case.nature_of_suit or ''}" for case in final_cases]
+                f"{case.case_name} {case.nature_of_suit or ''}" for case in filtered_cases]
             similarities = self.calculate_similarity(user_input, case_texts)
             logger.info("Calculated similarity scores for %d cases",
                         len(similarities))
 
             # Sort by similarity score
-            logger.info("STEP 8: Sorting by similarity")
-            scored_cases = list(zip(final_cases, similarities))
+            scored_cases = list(zip(filtered_cases, similarities))
             scored_cases.sort(key=lambda x: x[1], reverse=True)
 
             # Return top cases
@@ -354,6 +456,7 @@ class CourtListenerClient:
             logger.info("COMPREHENSIVE SEARCH COMPLETED")
             logger.info("Total cases found: %d", len(all_cases))
             logger.info("Unique cases: %d", len(final_cases))
+            logger.info("Quality filtered cases: %d", len(filtered_cases))
             logger.info("Top cases returned: %d", len(top_cases))
             logger.info("=" * 50)
 

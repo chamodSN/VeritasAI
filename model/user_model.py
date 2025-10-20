@@ -48,3 +48,8 @@ def store_result(user_id: str, result: dict):
 
 def get_user_queries(user_id: str):
     return list(queries_collection.find({"user_id": user_id}))
+
+
+def get_user_results(user_id: str):
+    """Get user's encrypted results from MongoDB"""
+    return list(results_collection.find({"user_id": user_id}))
