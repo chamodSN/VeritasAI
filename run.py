@@ -6,60 +6,97 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from view.api_view import router as api_router
 from view.auth_view import router as auth_router
-from common.logging import setup_logging
+from common.logging import logger
 from common.config import Config
 import os
 import nltk
-import subprocess
-import sys
-
-
-def initialize_nltk():
-    """Initialize NLTK data if not already downloaded"""
-    try:
-        nltk.data.find('corpora/wordnet')
-        nltk.data.find('corpora/stopwords')
-    except LookupError:
-        print("Downloading NLTK data...")
-        nltk.download('wordnet', quiet=True)
-        nltk.download('stopwords', quiet=True)
-        print("✓ NLTK data downloaded")
-
-
-def check_spacy_model():
-    """Check if spaCy model is available"""
-    try:
-        import spacy
-        spacy.load("en_core_web_sm")
-    except OSError:
-        print("Warning: spaCy model 'en_core_web_sm' not found.")
-        print("Install it with: python -m spacy download en_core_web_sm")
-
-
-def create_directories():
-    """Create necessary directories"""
-    directories = ["logs", "data/embeddings"]
-    for directory in directories:
-        os.makedirs(directory, exist_ok=True)
+import multiprocessing
+import time
 
 
 def initialize_app():
     """Initialize the application with necessary setup"""
-    print("Initializing VeritasAI...")
+    # Create necessary directories
+    directories = ["logs", "data/embeddings", "agents/pdf", "agents/citation"]
+    for directory in directories:
+        os.makedirs(directory, exist_ok=True)
+    
+    # Initialize NLTK data
+    try:
+        nltk.data.find('corpora/wordnet')
+        nltk.data.find('corpora/stopwords')
+    except LookupError:
+        nltk.download('wordnet', quiet=True)
+        nltk.download('stopwords', quiet=True)
 
-    # Create directories
-    create_directories()
 
-    # Initialize NLTK
-    initialize_nltk()
-
-    # Check spaCy model
-    check_spacy_model()
-
-    print("✓ Application initialized successfully")
+def run_service(app_module: str, port: int, service_name: str):
+    """Run a uvicorn service"""
+    uvicorn.run(app_module, host="0.0.0.0", port=port, log_level="info")
 
 
-app = FastAPI(title="VeritasAI Legal Multi-Agent System", version="1.0.0")
+def start_all_services():
+    """Start all VeritasAI services"""
+    # Define all services to start
+    services = [
+        {
+            "app": "agents.citation.citation_service:app",
+            "port": 8003,
+            "name": "Citation Service"
+        },
+        {
+            "app": "agents.pdf.pdf_service:app", 
+            "port": 8005,
+            "name": "PDF Analysis Service"
+        },
+        {
+            "app": "run:app",  # Main API service
+            "port": 8000,
+            "name": "Main API Service"
+        }
+    ]
+    
+    processes = []
+    
+    try:
+        # Start each service in a separate process
+        for service in services:
+            process = multiprocessing.Process(
+                target=run_service,
+                args=(service["app"], service["port"], service["name"])
+            )
+            process.start()
+            processes.append(process)
+            time.sleep(2)  # Give each service time to start
+        
+        # Wait for all processes
+        for process in processes:
+            process.join()
+            
+    except KeyboardInterrupt:
+        for process in processes:
+            if process.is_alive():
+                process.terminate()
+                process.join(timeout=5)
+                if process.is_alive():
+                    process.kill()
+
+
+def main():
+    """Main function to run VeritasAI"""
+    # Initialize the application
+    initialize_app()
+    
+    # Start all services
+    start_all_services()
+
+
+# FastAPI app configuration
+app = FastAPI(
+    title="VeritasAI Legal Multi-Agent System", 
+    version="2.0.0",
+    description="Enhanced legal research system with responsible AI framework, PDF analysis, and improved CourtListener integration"
+)
 
 # Add CORS middleware
 app.add_middleware(
@@ -89,8 +126,22 @@ async def serve_frontend():
         return FileResponse("frontend/index.html")
     else:
         return {
-            "message": "VeritasAI API is running",
+            "message": "VeritasAI Enhanced Legal Research System",
+            "version": "2.0.0",
+            "features": [
+                "Enhanced CourtListener API Integration",
+                "Responsible AI Framework (IBM)",
+                "PDF Legal Document Analysis", 
+                "Improved Citation Extraction",
+                "Data Encryption & Security",
+                "Multi-Case Analysis"
+            ],
             "docs": "/docs",
+            "services": {
+                "main_api": "http://localhost:8000",
+                "citation_service": "http://localhost:8003", 
+                "pdf_service": "http://localhost:8005"
+            },
             "note": "Frontend not found. Use npm frontend or check frontend/index.html"
         }
 
@@ -98,13 +149,49 @@ async def serve_frontend():
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "healthy", "service": "VeritasAI"}
+    return {
+        "status": "healthy", 
+        "service": "VeritasAI Enhanced",
+        "version": "2.0.0",
+        "features": [
+            "Responsible AI Framework",
+            "PDF Analysis", 
+            "Enhanced Citations",
+            "Data Encryption"
+        ]
+    }
 
-setup_logging()
+
+@app.get("/services/status")
+async def services_status():
+    """Check status of all services"""
+    services = {
+        "main_api": {"port": 8000, "status": "running"},
+        "citation_service": {"port": 8003, "status": "checking..."},
+        "pdf_service": {"port": 8005, "status": "checking..."}
+    }
+    
+    # Check if other services are running
+    for service_name, info in services.items():
+        if service_name != "main_api":
+            try:
+                import requests
+                response = requests.get(f"http://localhost:{info['port']}/health", timeout=2)
+                if response.status_code == 200:
+                    services[service_name]["status"] = "running"
+                else:
+                    services[service_name]["status"] = "error"
+            except:
+                services[service_name]["status"] = "not_running"
+    
+    return {
+        "services": services,
+        "overall_status": "healthy" if all(s["status"] == "running" for s in services.values()) else "degraded"
+    }
+
+
+# Setup logging
+# logger is already imported and initialized from common.logging
 
 if __name__ == "__main__":
-    # Initialize the application
-    initialize_app()
-
-    # Start the server
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    main()

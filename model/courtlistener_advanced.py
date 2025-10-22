@@ -8,10 +8,8 @@ import requests
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from common.config import Config
-from common.logging import setup_logging
+from common.logging import logger
 from model.courtlistener_client import courtlistener_client
-
-logger = setup_logging()
 
 
 @dataclass

@@ -1,9 +1,7 @@
 from langchain_openai import ChatOpenAI
 from typing import List
 from common.config import Config
-from common.logging import setup_logging
-
-logger = setup_logging()
+from common.logging import logger
 
 
 class LegalTermExpander:

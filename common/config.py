@@ -18,5 +18,6 @@ class Config:
     GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
     SESSION_SECRET_KEY = os.getenv("SESSION_SECRET_KEY")
     JWT_SECRET = os.getenv("JWT_SECRET")
+    ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
     DATA_PATH = os.getenv("DATA_PATH", "./data/corpus/")
     COURTLISTENER_API_KEY = os.getenv("COURTLISTENER_API_KEY")

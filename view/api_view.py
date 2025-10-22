@@ -1,12 +1,17 @@
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from controller.orchestrator import orchestrate_query, get_case_alerts
 from controller.auth_controller import verify_access_token
-from model.user_model import store_query, store_result
+from model.user_model import store_query, get_user_queries, get_user_results
 from model.courtlistener_advanced import courtlistener_advanced
+from agents.pdf.pdf_service import pdf_processor
+from common.responsible_ai import rai_framework
+from common.encryption import secure_storage
+from common.models import PDFUploadRequest
 from datetime import datetime
 from typing import List, Dict, Any, Optional
+import base64
 
 router = APIRouter()
 security = HTTPBearer()
@@ -45,10 +50,9 @@ async def handle_query(payload: QueryPayload, current_user: dict = Depends(get_c
         user_id = current_user["user_id"]
         result = orchestrate_query(payload.query, user_id)
 
-        # Store query and result in MongoDB
+        # Store query in MongoDB (result is already stored encrypted by orchestrator)
         store_query(user_id, {"query": payload.query,
                     "timestamp": datetime.utcnow()})
-        store_result(user_id, result)
 
         return result
     except Exception as e:
@@ -177,15 +181,194 @@ async def get_user_query_history(current_user: dict = Depends(get_current_user))
     return {"queries": queries}
 
 
-@router.get("/user/profile")
-async def get_user_profile(current_user: dict = Depends(get_current_user)):
-    """Get user profile information."""
-    from model.user_model import get_user_by_id
+@router.get("/user/results")
+async def get_user_results_history(current_user: dict = Depends(get_current_user)):
+    """Get user's analysis results history."""
+    from common.encryption import secure_storage
+    
     user_id = current_user["user_id"]
-    user_profile = get_user_by_id(user_id)
-    if user_profile:
-        # Remove sensitive data
-        user_profile.pop('_id', None)
-        return user_profile
-    else:
-        raise HTTPException(status_code=404, detail="User not found")
+    encrypted_results = get_user_results(user_id)
+    
+    # Decrypt results for display
+    decrypted_results = []
+    for result in encrypted_results:
+        try:
+            if "encrypted_data" in result and "encryption_version" in result:
+                decrypted_data = secure_storage.retrieve_analysis_result({
+                    "encrypted_data": result["encrypted_data"],
+                    "encryption_version": result["encryption_version"]
+                })
+                decrypted_results.append({
+                    "_id": str(result["_id"]),
+                    "user_id": result["user_id"],
+                    "timestamp": decrypted_data.get("timestamp"),
+                    "result": decrypted_data.get("result", {})
+                })
+        except Exception as e:
+            # Skip corrupted results
+            continue
+    
+    return {"results": decrypted_results}
+
+
+@router.get("/user/history")
+async def get_user_history(current_user: dict = Depends(get_current_user)):
+    """Get user's complete history including queries and results."""
+    user_id = current_user["user_id"]
+    
+    # Get queries
+    queries = get_user_queries(user_id)
+    queries_data = []
+    for query in queries:
+        queries_data.append({
+            "_id": str(query["_id"]),
+            "query": query.get("query", ""),
+            "timestamp": query.get("timestamp", ""),
+            "user_id": query.get("user_id", "")
+        })
+    
+    # Get results
+    encrypted_results = get_user_results(user_id)
+    results_data = []
+    for result in encrypted_results:
+        try:
+            if "encrypted_data" in result and "encryption_version" in result:
+                decrypted_data = secure_storage.retrieve_analysis_result({
+                    "encrypted_data": result["encrypted_data"],
+                    "encryption_version": result["encryption_version"]
+                })
+                results_data.append({
+                    "_id": str(result["_id"]),
+                    "user_id": result["user_id"],
+                    "timestamp": decrypted_data.get("timestamp"),
+                    "summary": decrypted_data.get("result", {}).get("summary", ""),
+                    "confidence": decrypted_data.get("result", {}).get("confidence", 0),
+                    "case_count": decrypted_data.get("result", {}).get("case_count", 0),
+                    "issues_count": len(decrypted_data.get("result", {}).get("issues", [])),
+                    "citations_count": len(decrypted_data.get("result", {}).get("citations", []))
+                })
+        except Exception as e:
+            # Skip corrupted results
+            continue
+    
+    return {
+        "queries": queries_data,
+        "results": results_data,
+        "total_queries": len(queries_data),
+        "total_results": len(results_data)
+    }
+
+
+@router.post("/pdf/upload")
+async def upload_pdf(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
+    """Upload and analyze a PDF legal document"""
+    try:
+        user_id = current_user["user_id"]
+        
+        # Validate file
+        if not file.filename.lower().endswith('.pdf'):
+            raise HTTPException(status_code=400, detail="Only PDF files are supported")
+        
+        # Read file content
+        content = await file.read()
+        
+        if len(content) > 10 * 1024 * 1024:  # 10MB limit
+            raise HTTPException(status_code=400, detail="File too large. Maximum size is 10MB")
+        
+        # Process PDF
+        analysis_result = pdf_processor.analyze_legal_document(
+            pdf_processor.extract_text_from_pdf(content)
+        )
+        
+        if analysis_result["success"]:
+            # Store encrypted PDF data
+            encrypted_pdf = secure_storage.store_pdf_data(user_id, content, file.filename)
+            
+            # Run responsible AI checks on PDF analysis
+            rai_checks = rai_framework.run_comprehensive_checks(
+                f"PDF Analysis: {file.filename}", 
+                analysis_result, 
+                []
+            )
+            
+            analysis_result["responsible_ai_checks"] = rai_checks
+            analysis_result["encrypted_pdf_id"] = encrypted_pdf["encrypted_data"][:50] + "..."  # Truncated for response
+            
+            return analysis_result
+        else:
+            raise HTTPException(status_code=400, detail=analysis_result.get("error", "PDF analysis failed"))
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/pdf/analyze")
+async def analyze_pdf_text(request: PDFUploadRequest, current_user: dict = Depends(get_current_user)):
+    """Analyze PDF text content (base64 encoded)"""
+    try:
+        user_id = current_user["user_id"]
+        
+        # Decode base64 content
+        pdf_content = base64.b64decode(request.content)
+        
+        # Process PDF
+        analysis_result = pdf_processor.analyze_legal_document(
+            pdf_processor.extract_text_from_pdf(pdf_content)
+        )
+        
+        if analysis_result["success"]:
+            # Store encrypted PDF data
+            encrypted_pdf = secure_storage.store_pdf_data(user_id, pdf_content, request.filename)
+            
+            # Run responsible AI checks
+            rai_checks = rai_framework.run_comprehensive_checks(
+                f"PDF Analysis: {request.filename}", 
+                analysis_result, 
+                []
+            )
+            
+            analysis_result["responsible_ai_checks"] = rai_checks
+            analysis_result["encrypted_pdf_id"] = encrypted_pdf["encrypted_data"][:50] + "..."
+            
+            return analysis_result
+        else:
+            raise HTTPException(status_code=400, detail=analysis_result.get("error", "PDF analysis failed"))
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/rai/checks")
+async def get_responsible_ai_info(current_user: dict = Depends(get_current_user)):
+    """Get information about responsible AI framework"""
+    return {
+        "framework": "IBM Responsible AI Framework",
+        "pillars": [
+            {
+                "name": "Explainability",
+                "description": "Can users understand how AI derives conclusions?",
+                "checks": ["Summary clarity", "Citation quality", "Confidence transparency"]
+            },
+            {
+                "name": "Fairness", 
+                "description": "Are results unbiased and representative?",
+                "checks": ["Court diversity", "Temporal diversity", "Precedential balance", "Bias detection"]
+            },
+            {
+                "name": "Robustness",
+                "description": "Does the system handle edge cases gracefully?",
+                "checks": ["Error handling", "Data quality", "Case count adequacy"]
+            },
+            {
+                "name": "Transparency",
+                "description": "Are processes and sources clear?",
+                "checks": ["Data source identification", "Methodology transparency", "Timestamp tracking"]
+            },
+            {
+                "name": "Privacy",
+                "description": "Is user data protected appropriately?",
+                "checks": ["PII detection", "Data encryption", "Retention policies"]
+            }
+        ],
+        "implementation": "Custom implementation for legal research with legal-specific adaptations"
+    }
