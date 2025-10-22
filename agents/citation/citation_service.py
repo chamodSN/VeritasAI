@@ -47,7 +47,7 @@ stop_words = set(stopwords.words('english'))
 class CitationExtractor:
     """Enhanced citation extraction with local NLP processing"""
     
-    def _init_(self):
+    def __init__(self):
         self.case_patterns = [
             r"\b[A-Z][a-zA-Z']+(?:\s+[A-Z][a-zA-Z']+)?\s+v\.\s+[A-Z][a-zA-Z']+(?:\s+[A-Z][a-zA-Z']+)?\b",
             r"\b[A-Z][a-zA-Z']+\s+v\.\s+[A-Z][a-zA-Z']+\b"

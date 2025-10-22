@@ -197,9 +197,6 @@ function App() {
   };
 
   const CitationsSection = ({ content }) => {
-    // Debug: Log the content to see what we're receiving
-    console.log('Citations content:', content);
-    
     // Parse the citation data
     let citationData = null;
     let summary = null;
