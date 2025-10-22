@@ -50,7 +50,7 @@ async def handle_query(payload: QueryPayload, current_user: dict = Depends(get_c
         user_id = current_user["user_id"]
         result = orchestrate_query(payload.query, user_id)
 
-        # Store query in MongoDB (result is already stored encrypted by orchestrator)
+        # Store encrypted query in MongoDB (result is already stored encrypted by orchestrator)
         store_query(user_id, {"query": payload.query,
                     "timestamp": datetime.utcnow()})
 
@@ -176,9 +176,32 @@ async def get_status():
 async def get_user_query_history(current_user: dict = Depends(get_current_user)):
     """Get user's query history."""
     from model.user_model import get_user_queries
+    from common.encryption import secure_storage
+    
     user_id = current_user["user_id"]
-    queries = get_user_queries(user_id)
-    return {"queries": queries}
+    encrypted_queries = get_user_queries(user_id)
+    
+    # Decrypt queries for display
+    decrypted_queries = []
+    for query in encrypted_queries:
+        try:
+            if "encrypted_data" in query and "encryption_version" in query:
+                decrypted_data = secure_storage.retrieve_user_query({
+                    "encrypted_data": query["encrypted_data"],
+                    "encryption_version": query["encryption_version"]
+                })
+                decrypted_queries.append({
+                    "_id": str(query["_id"]),
+                    "user_id": query["user_id"],
+                    "query": decrypted_data.get("query", ""),
+                    "timestamp": query.get("timestamp", ""),
+                    "type": decrypted_data.get("type", "user_query")
+                })
+        except Exception as e:
+            # Skip corrupted queries
+            continue
+    
+    return {"queries": decrypted_queries}
 
 
 @router.get("/user/results")
@@ -216,18 +239,28 @@ async def get_user_history(current_user: dict = Depends(get_current_user)):
     """Get user's complete history including queries and results."""
     user_id = current_user["user_id"]
     
-    # Get queries
-    queries = get_user_queries(user_id)
+    # Get encrypted queries
+    encrypted_queries = get_user_queries(user_id)
     queries_data = []
-    for query in queries:
-        queries_data.append({
-            "_id": str(query["_id"]),
-            "query": query.get("query", ""),
-            "timestamp": query.get("timestamp", ""),
-            "user_id": query.get("user_id", "")
-        })
+    for query in encrypted_queries:
+        try:
+            if "encrypted_data" in query and "encryption_version" in query:
+                decrypted_data = secure_storage.retrieve_user_query({
+                    "encrypted_data": query["encrypted_data"],
+                    "encryption_version": query["encryption_version"]
+                })
+                queries_data.append({
+                    "_id": str(query["_id"]),
+                    "query": decrypted_data.get("query", ""),
+                    "timestamp": query.get("timestamp", ""),
+                    "user_id": query.get("user_id", ""),
+                    "type": decrypted_data.get("type", "user_query")
+                })
+        except Exception as e:
+            # Skip corrupted queries
+            continue
     
-    # Get results
+    # Get encrypted results
     encrypted_results = get_user_results(user_id)
     results_data = []
     for result in encrypted_results:
@@ -245,7 +278,8 @@ async def get_user_history(current_user: dict = Depends(get_current_user)):
                     "confidence": decrypted_data.get("result", {}).get("confidence", 0),
                     "case_count": decrypted_data.get("result", {}).get("case_count", 0),
                     "issues_count": len(decrypted_data.get("result", {}).get("issues", [])),
-                    "citations_count": len(decrypted_data.get("result", {}).get("citations", []))
+                    "citations_count": len(decrypted_data.get("result", {}).get("citations", [])),
+                    "result": decrypted_data.get("result", {})
                 })
         except Exception as e:
             # Skip corrupted results
