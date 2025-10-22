@@ -233,6 +233,8 @@ def orchestrate_query(query: str, user_id: str) -> Dict[str, Any]:
             # Store encrypted results
             from model.user_model import store_result
             serialized_result = serialize_results(result)
+            # Add query to the result data for linking
+            serialized_result["original_query"] = query
             encrypted_result = secure_storage.store_analysis_result(user_id, serialized_result)
             store_result(user_id, encrypted_result)
             logger.info("Stored encrypted results for user: %s", user_id)

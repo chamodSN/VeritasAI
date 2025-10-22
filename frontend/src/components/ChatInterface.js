@@ -28,6 +28,7 @@ const ChatInterface = ({ apiClient, isAuthenticated, user, onSubmitQuery, onPDFC
       setHistory(response.data.queries || []);
     } catch (err) {
       console.error('Error fetching history:', err);
+      setError('Failed to load history');
     } finally {
       setHistoryLoading(false);
     }
@@ -74,16 +75,22 @@ const ChatInterface = ({ apiClient, isAuthenticated, user, onSubmitQuery, onPDFC
                   onClick={async () => {
                     setQuery(item.query);
                     setMode('query');
-                    // Fetch results from MongoDB instead of re-running query
+                    setError(null);
+                    
+                    // Try to fetch results for this query
                     try {
-                      const response = await apiClient.get(`/api/user/history/${item._id}`);
-                      if (response.data && response.data.result) {
-                        // Display the stored results
+                      console.log('Searching for query:', item.query);
+                      const response = await apiClient.get(`/api/user/results/by-query?query=${encodeURIComponent(item.query)}&timestamp=${encodeURIComponent(item.timestamp)}`);
+                      console.log('Results response:', response.data);
+                      if (response.data && response.data.result && !response.data.error) {
                         setResults(response.data.result);
-                        setError(null);
+                      } else {
+                        setResults(null);
+                        setError('No previous results found for this query');
                       }
                     } catch (err) {
                       console.error('Error fetching history results:', err);
+                      setResults(null);
                       setError('Failed to load previous results');
                     }
                   }}

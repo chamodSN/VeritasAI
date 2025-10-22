@@ -70,10 +70,10 @@ const HomePage = ({ user, isAuthenticated }) => {
           
           <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
             {/* Free Plan */}
-            <div className="bg-black rounded-xl p-8 text-white">
+            <div className="bg-white border-2 border-blue-500 rounded-xl p-8 text-gray-900">
               <div className="text-center mb-6">
                 <div className="text-3xl font-bold mb-2">$0 / month</div>
-                <div className="text-2xl font-bold text-green-400 mb-4 border-b border-gray-600 pb-2">Free</div>
+                <div className="text-2xl font-bold text-green-600 mb-4 border-b border-gray-300 pb-2">Free</div>
               </div>
               
               <div className="space-y-3">
@@ -93,10 +93,10 @@ const HomePage = ({ user, isAuthenticated }) => {
             </div>
 
             {/* Student Plan */}
-            <div className="bg-black rounded-xl p-8 text-white">
+            <div className="bg-white border-2 border-blue-500 rounded-xl p-8 text-gray-900">
               <div className="text-center mb-6">
                 <div className="text-3xl font-bold mb-2">$9 / month or $90 / year</div>
-                <div className="text-2xl font-bold text-red-400 mb-4 border-b border-gray-600 pb-2">Student</div>
+                <div className="text-2xl font-bold text-red-600 mb-4 border-b border-gray-300 pb-2">Student</div>
               </div>
               
               <div className="space-y-3">
@@ -126,10 +126,10 @@ const HomePage = ({ user, isAuthenticated }) => {
 
           <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto mt-8">
             {/* Lawyer Plan */}
-            <div className="bg-black rounded-xl p-8 text-white">
+            <div className="bg-white border-2 border-blue-500 rounded-xl p-8 text-gray-900">
               <div className="text-center mb-6">
                 <div className="text-3xl font-bold mb-2">$49 / month or $490 / year</div>
-                <div className="text-2xl font-bold text-blue-400 mb-4 border-b border-gray-600 pb-2">Lawyer</div>
+                <div className="text-2xl font-bold text-blue-600 mb-4 border-b border-gray-300 pb-2">Lawyer</div>
               </div>
               
               <div className="space-y-3">
@@ -161,10 +161,10 @@ const HomePage = ({ user, isAuthenticated }) => {
             </div>
 
             {/* Law Firm Plan */}
-            <div className="bg-black rounded-xl p-8 text-white">
+            <div className="bg-white border-2 border-blue-500 rounded-xl p-8 text-gray-900">
               <div className="text-center mb-6">
                 <div className="text-3xl font-bold mb-2">Custom pricing (starting $199 / month, team of 5)</div>
-                <div className="text-2xl font-bold text-purple-400 mb-4 border-b border-gray-600 pb-2">Law Firm</div>
+                <div className="text-2xl font-bold text-purple-600 mb-4 border-b border-gray-300 pb-2">Law Firm</div>
               </div>
               
               <div className="space-y-3">
