@@ -234,6 +234,93 @@ async def get_user_results_history(current_user: dict = Depends(get_current_user
     return {"results": decrypted_results}
 
 
+@router.get("/user/results/by-query")
+async def get_results_by_query(query: str, timestamp: str = None, current_user: dict = Depends(get_current_user)):
+    """Get analysis results for a specific query."""
+    from common.encryption import secure_storage
+    from common.logging import logger
+    
+    user_id = current_user["user_id"]
+    encrypted_results = get_user_results(user_id)
+    
+    logger.info("Searching for query: %s", query)
+    logger.info("Found %d encrypted results", len(encrypted_results))
+    
+    # Find results that match the query
+    matching_results = []
+    for result in encrypted_results:
+        try:
+            if "encrypted_data" in result and "encryption_version" in result:
+                decrypted_data = secure_storage.retrieve_analysis_result({
+                    "encrypted_data": result["encrypted_data"],
+                    "encryption_version": result["encryption_version"]
+                })
+                stored_query = decrypted_data.get("original_query", "")
+                logger.info("Stored query: '%s', Searching for: '%s'", stored_query, query)
+                
+                # Check if this result matches the query
+                if stored_query == query:
+                    matching_results.append({
+                        "_id": str(result["_id"]),
+                        "user_id": result["user_id"],
+                        "timestamp": decrypted_data.get("timestamp"),
+                        "result": decrypted_data.get("result", {}),
+                        "original_query": stored_query
+                    })
+                    logger.info("Found matching result!")
+        except Exception as e:
+            logger.error("Error decrypting result: %s", str(e))
+            # Skip corrupted results
+            continue
+    
+    logger.info("Found %d matching results", len(matching_results))
+    
+    # If no exact query matches and timestamp is provided, try timestamp-based matching
+    if not matching_results and timestamp:
+        logger.info("No exact query match, trying timestamp-based matching")
+        from datetime import datetime, timedelta
+        
+        try:
+            query_timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            time_window = timedelta(minutes=30)  # 30-minute window
+            
+            for result in encrypted_results:
+                try:
+                    if "encrypted_data" in result and "encryption_version" in result:
+                        decrypted_data = secure_storage.retrieve_analysis_result({
+                            "encrypted_data": result["encrypted_data"],
+                            "encryption_version": result["encryption_version"]
+                        })
+                        
+                        result_timestamp_str = decrypted_data.get("timestamp", "")
+                        if result_timestamp_str:
+                            result_timestamp = datetime.fromisoformat(result_timestamp_str.replace('Z', '+00:00'))
+                            
+                            # Check if result is within time window
+                            if abs((query_timestamp - result_timestamp).total_seconds()) <= time_window.total_seconds():
+                                matching_results.append({
+                                    "_id": str(result["_id"]),
+                                    "user_id": result["user_id"],
+                                    "timestamp": decrypted_data.get("timestamp"),
+                                    "result": decrypted_data.get("result", {}),
+                                    "original_query": decrypted_data.get("original_query", "")
+                                })
+                                logger.info("Found timestamp-based match!")
+                except Exception as e:
+                    logger.error("Error in timestamp matching: %s", str(e))
+                    continue
+        except Exception as e:
+            logger.error("Error parsing timestamp: %s", str(e))
+    
+    # Return the most recent matching result
+    if matching_results:
+        # Sort by timestamp and return the most recent
+        matching_results.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+        return matching_results[0]
+    else:
+        return {"error": "No results found for this query"}
+
+
 @router.get("/user/history")
 async def get_user_history(current_user: dict = Depends(get_current_user)):
     """Get user's complete history including queries and results."""
