@@ -20,10 +20,9 @@ def verify_citations(citations: list):
             "message": "No citations were found to verify",
             "verified_citations": [],
             "invalid_citations": [],
-            "recommendations": []
+            "recommendations": [],
+            "total_citations": 0
         }
-
-    logger.info(f"Verifying {len(citations)} citations")
 
     # Create detailed task description
     citations_text = "\n".join(
@@ -96,7 +95,7 @@ The response must be valid JSON that can be parsed directly."""
             import re
             
             # Look for JSON in markdown code blocks
-            json_match = re.search(r'json\s*\n(.*?)\n', raw_output, re.DOTALL)
+            json_match = re.search(r'```json\s*\n(.*?)\n```', raw_output, re.DOTALL)
             if json_match:
                 json_str = json_match.group(1)
                 json_data = json.loads(json_str)
@@ -106,8 +105,8 @@ The response must be valid JSON that can be parsed directly."""
                 if json_match:
                     json_str = json_match.group(0)
                     json_data = json.loads(json_str)
-        except Exception as parse_error:
-            logger.warning(f"Could not parse JSON from citation result: {parse_error}")
+        except (json.JSONDecodeError, ValueError) as parse_error:
+            logger.warning("Could not parse JSON from citation result: %s", str(parse_error))
             # Create a fallback structure
             json_data = {
                 "overall_verification_summary": {
@@ -139,8 +138,8 @@ The response must be valid JSON that can be parsed directly."""
 
         return verification_result
 
-    except Exception as e:
-        logger.error(f"Error during citation verification: {str(e)}")
+    except (ValueError, TypeError, AttributeError) as e:
+        logger.error("Error during citation verification: %s", str(e))
         return {
             "status": "error",
             "message": f"Citation verification failed: {str(e)}",
