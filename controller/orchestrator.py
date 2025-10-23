@@ -9,6 +9,164 @@ from model.courtlistener_client import courtlistener_client
 from common.responsible_ai import rai_framework
 from common.encryption import secure_storage
 from typing import Dict, Any, List
+from datetime import datetime
+
+
+def serialize_results(result: Dict[str, Any]) -> Dict[str, Any]:
+    """Serialize CrewAI results for storage"""
+    serialized = {}
+    for key, value in result.items():
+        if hasattr(value, 'raw'):  # CrewAI output
+            serialized[key] = str(value.raw)
+        elif hasattr(value, 'model_dump'):  # Pydantic model
+            serialized[key] = value.model_dump()
+        else:
+            serialized[key] = value
+    return serialized
+
+
+def orchestrate_query_with_text(query: str, user_id: str, document_text: str) -> Dict[str, Any]:
+    """
+    Enhanced orchestration for PDF document analysis using provided text
+    with responsible AI checks and improved case processing
+    """
+    logger.info("Starting PDF document orchestration for: %s", query)
+
+    try:
+        # Step 1: Extract issues from the document text
+        issues = extract_issues(document_text)
+        logger.info("Extracted %d issues from document", len(issues))
+
+        # Step 2: Extract citations from the document
+        citations = []
+        try:
+            from agents.citation.citation_service import citation_extractor
+            citations = citation_extractor.extract_citations_from_text(document_text)
+            logger.info("Extracted %d citations from document", len(citations))
+        except Exception as e:
+            logger.error("Error extracting citations: %s", e)
+            citations = []
+
+        # Step 3: Generate comprehensive summary using summarization agent
+        try:
+            summary_task = Task(
+                description=f"Create a comprehensive summary of this legal document. Focus on key legal principles, main arguments, and important findings. Document text: {document_text[:2000]}...",
+                agent=summarization_agent,
+                expected_output="Well-structured summary including key legal principles, main arguments, court findings, and legal significance"
+            )
+
+            summary_crew = Crew(
+                agents=[summarization_agent],
+                tasks=[summary_task],
+                verbose=True
+            )
+            summary = summary_crew.kickoff()
+            logger.info("Generated comprehensive summary")
+        except Exception as e:
+            logger.error("Error generating summary: %s", e)
+            summary = "Error occurred during summary generation"
+
+        # Step 4: Generate comprehensive arguments using argument agent
+        try:
+            arg_task = Task(
+                description=f"Analyze the legal arguments presented in this document. Identify main arguments, supporting evidence, and legal reasoning. Document text: {document_text[:2000]}... Issues identified: {issues[:10]}",
+                agent=argument_agent,
+                expected_output="Comprehensive analysis of legal arguments including main points, supporting evidence, and legal reasoning"
+            )
+
+            arg_crew = Crew(
+                agents=[argument_agent],
+                tasks=[arg_task],
+                verbose=True
+            )
+            arguments = arg_crew.kickoff()
+            logger.info("Generated comprehensive arguments")
+        except Exception as e:
+            logger.error("Error generating arguments: %s", e)
+            arguments = "Error occurred during argument generation"
+
+        # Step 5: Generate enhanced analytics using analytics agent
+        try:
+            analytics_task = Task(
+                description=f"Analyze this legal document for patterns, legal trends, and insights. Consider the legal principles, court reasoning, and precedential value. Document text: {document_text[:2000]}...",
+                agent=analytics_agent,
+                expected_output="Comprehensive analysis including legal patterns, precedential analysis, and insights about the document's legal significance"
+            )
+
+            analytics_crew = Crew(
+                agents=[analytics_agent],
+                tasks=[analytics_task],
+                verbose=True
+            )
+            analytics = analytics_crew.kickoff()
+            logger.info("Generated enhanced analytics")
+        except Exception as e:
+            logger.error("Error generating analytics: %s", e)
+            analytics = "Error occurred during analytics generation"
+
+        # Step 6: Compile results
+        result = {
+            "summary": str(summary.raw) if hasattr(summary, 'raw') else str(summary),
+            "issues": issues,
+            "arguments": str(arguments.raw) if hasattr(arguments, 'raw') else str(arguments),
+            "citations": citations,
+            "analytics": str(analytics.raw) if hasattr(analytics, 'raw') else str(analytics),
+            "document_length": len(document_text),
+            "analysis_timestamp": datetime.utcnow().isoformat(),
+            "query": query
+        }
+
+        # Step 7: Run responsible AI checks
+        try:
+            rai_checks = rai_framework.run_comprehensive_checks(query, result, [])
+            # Serialize RAI checks before adding to result
+            serialized_rai_checks = [check.model_dump() if hasattr(check, 'model_dump') else check.__dict__ for check in rai_checks]
+            result["responsible_ai_checks"] = serialized_rai_checks
+            
+            # Calculate RAI metrics
+            rai_metrics = rai_framework.calculate_overall_score(rai_checks)
+            result["rai_metrics"] = {
+                "explainability_score": rai_metrics.explainability_score,
+                "fairness_score": rai_metrics.fairness_score,
+                "robustness_score": rai_metrics.robustness_score,
+                "transparency_score": rai_metrics.transparency_score,
+                "privacy_score": rai_metrics.privacy_score,
+                "overall_score": rai_metrics.overall_score
+            }
+            logger.info("RAI checks completed successfully")
+        except Exception as rai_error:
+            logger.error("Error in RAI checks: %s", rai_error)
+            result["responsible_ai_checks"] = []
+            result["rai_metrics"] = {
+                "explainability_score": 0.0,
+                "fairness_score": 0.0,
+                "robustness_score": 0.0,
+                "transparency_score": 0.0,
+                "privacy_score": 0.0,
+                "overall_score": 0.0
+            }
+
+        # Store encrypted results
+        from model.user_model import store_result
+        serialized_result = serialize_results(result)
+        # Add query to the result data for linking
+        serialized_result["original_query"] = query
+        encrypted_result = secure_storage.store_analysis_result(user_id, serialized_result)
+        store_result(user_id, encrypted_result)
+        logger.info("Stored encrypted PDF analysis results for user: %s", user_id)
+
+        return result
+
+    except Exception as e:
+        logger.error("Error in PDF orchestration: %s", e)
+        return {
+            "summary": "Error occurred during PDF analysis",
+            "issues": [],
+            "arguments": "Error occurred during argument analysis",
+            "citations": [],
+            "analytics": "Error occurred during analytics generation",
+            "error": str(e)
+        }
 
 
 def orchestrate_query(query: str, user_id: str) -> Dict[str, Any]:

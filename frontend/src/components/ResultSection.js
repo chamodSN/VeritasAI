@@ -7,7 +7,20 @@ const ResultSection = ({ title, icon, iconColor, content }) => {
   const [collapsed, setCollapsed] = useState(false);
   if (!content) return null;
 
-  const safeContent = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
+  // Format content based on its type
+  const formatContent = (content) => {
+    if (typeof content === 'string') {
+      return content;
+    } else if (Array.isArray(content)) {
+      // Format array as a numbered list
+      return content.map((item, index) => `${index + 1}. ${item}`).join('\n\n');
+    } else if (typeof content === 'object') {
+      return JSON.stringify(content, null, 2);
+    }
+    return String(content);
+  };
+
+  const safeContent = formatContent(content);
 
   return (
     <div className="card">

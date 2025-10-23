@@ -3,6 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.responses import RedirectResponse
 from controller.auth_controller import oauth, get_user_info, create_access_token, verify_access_token
 from model.user_model import store_user, get_user_by_email
+from common.encryption import secure_storage
 import uuid
 from datetime import datetime
 
@@ -65,7 +66,36 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     """Get current authenticated user info."""
     try:
         user_info = verify_access_token(credentials.credentials)
-        return {"user_id": user_info["user_id"], "email": user_info["email"]}
+        user_id = user_info["user_id"]
+        email = user_info["email"]
+        
+        # Get user from database
+        user_data = get_user_by_email(email)
+        if not user_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Decrypt user data
+        try:
+            decrypted_data = secure_storage.decrypt_user_query({
+                "encrypted_data": user_data["encrypted_data"]
+            })
+            name_picture = decrypted_data.get("query", "").split("|")
+            name = name_picture[0] if len(name_picture) > 0 else ""
+            picture = name_picture[1] if len(name_picture) > 1 else ""
+        except Exception as e:
+            # Fallback if decryption fails
+            name = ""
+            picture = ""
+        
+        return {
+            "user_id": user_id,
+            "email": email,
+            "name": name,
+            "picture": picture
+        }
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
