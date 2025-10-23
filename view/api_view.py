@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
-from controller.orchestrator import orchestrate_query, get_case_alerts
+from controller.orchestrator import orchestrate_query, orchestrate_query_with_text, get_case_alerts
 from controller.auth_controller import verify_access_token
 from model.user_model import store_query, get_user_queries, get_user_results
 from model.courtlistener_advanced import courtlistener_advanced
@@ -382,7 +382,7 @@ async def get_user_history(current_user: dict = Depends(get_current_user)):
 
 @router.post("/pdf/upload")
 async def upload_pdf(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
-    """Upload and analyze a PDF legal document"""
+    """Upload and analyze a PDF legal document using full agent orchestration"""
     try:
         user_id = current_user["user_id"]
         
@@ -396,28 +396,24 @@ async def upload_pdf(file: UploadFile = File(...), current_user: dict = Depends(
         if len(content) > 10 * 1024 * 1024:  # 10MB limit
             raise HTTPException(status_code=400, detail="File too large. Maximum size is 10MB")
         
-        # Process PDF
-        analysis_result = pdf_processor.analyze_legal_document(
-            pdf_processor.extract_text_from_pdf(content)
-        )
+        # Extract text from PDF
+        text = pdf_processor.extract_text_from_pdf(content)
         
-        if analysis_result["success"]:
-            # Store encrypted PDF data
-            encrypted_pdf = secure_storage.store_pdf_data(user_id, content, file.filename)
-            
-            # Run responsible AI checks on PDF analysis
-            rai_checks = rai_framework.run_comprehensive_checks(
-                f"PDF Analysis: {file.filename}", 
-                analysis_result, 
-                []
-            )
-            
-            analysis_result["responsible_ai_checks"] = rai_checks
-            analysis_result["encrypted_pdf_id"] = encrypted_pdf["encrypted_data"][:50] + "..."  # Truncated for response
-            
-            return analysis_result
-        else:
-            raise HTTPException(status_code=400, detail=analysis_result.get("error", "PDF analysis failed"))
+        if not text or len(text.strip()) < 100:
+            raise HTTPException(status_code=400, detail="Could not extract sufficient text from PDF")
+        
+        # Use the full orchestrator for comprehensive analysis
+        pdf_query = f"Analyze this legal document: {file.filename}"
+        
+        # Run full orchestration with PDF text
+        result = orchestrate_query_with_text(pdf_query, user_id, text)
+        
+        # Store encrypted PDF data
+        encrypted_pdf = secure_storage.store_pdf_data(user_id, content, file.filename)
+        result["encrypted_pdf_id"] = encrypted_pdf["encrypted_data"][:50] + "..."
+        result["pdf_filename"] = file.filename
+        
+        return result
     
     except HTTPException:
         raise
@@ -426,35 +422,32 @@ async def upload_pdf(file: UploadFile = File(...), current_user: dict = Depends(
 
 @router.post("/pdf/analyze")
 async def analyze_pdf_text(request: PDFUploadRequest, current_user: dict = Depends(get_current_user)):
-    """Analyze PDF text content (base64 encoded)"""
+    """Analyze PDF text content (base64 encoded) using full agent orchestration"""
     try:
         user_id = current_user["user_id"]
         
         # Decode base64 content
         pdf_content = base64.b64decode(request.content)
         
-        # Process PDF
-        analysis_result = pdf_processor.analyze_legal_document(
-            pdf_processor.extract_text_from_pdf(pdf_content)
-        )
+        # Extract text from PDF
+        text = pdf_processor.extract_text_from_pdf(pdf_content)
         
-        if analysis_result["success"]:
-            # Store encrypted PDF data
-            encrypted_pdf = secure_storage.store_pdf_data(user_id, pdf_content, request.filename)
-            
-            # Run responsible AI checks
-            rai_checks = rai_framework.run_comprehensive_checks(
-                f"PDF Analysis: {request.filename}", 
-                analysis_result, 
-                []
-            )
-            
-            analysis_result["responsible_ai_checks"] = rai_checks
-            analysis_result["encrypted_pdf_id"] = encrypted_pdf["encrypted_data"][:50] + "..."
-            
-            return analysis_result
-        else:
-            raise HTTPException(status_code=400, detail=analysis_result.get("error", "PDF analysis failed"))
+        if not text or len(text.strip()) < 100:
+            raise HTTPException(status_code=400, detail="Could not extract sufficient text from PDF")
+        
+        # Use the full orchestrator for comprehensive analysis
+        # Create a query-like analysis using the PDF text
+        pdf_query = f"Analyze this legal document: {request.filename}"
+        
+        # Run full orchestration with PDF text as the "query"
+        result = orchestrate_query_with_text(pdf_query, user_id, text)
+        
+        # Store encrypted PDF data
+        encrypted_pdf = secure_storage.store_pdf_data(user_id, pdf_content, request.filename)
+        result["encrypted_pdf_id"] = encrypted_pdf["encrypted_data"][:50] + "..."
+        result["pdf_filename"] = request.filename
+        
+        return result
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

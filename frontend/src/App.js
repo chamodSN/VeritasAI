@@ -157,16 +157,16 @@ function App() {
   };
   return (
     <Router>
-      <div className="min-h-screen bg-white">
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <NavBar onLogin={handleGoogleLogin} onLogout={handleLogout} isAuthenticated={isAuthenticated} user={user} />
+      <div className="min-h-screen bg-white flex flex-col">
+        <NavBar onLogin={handleGoogleLogin} onLogout={handleLogout} isAuthenticated={isAuthenticated} user={user} />
+        <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-8">
           <Routes>
             <Route path="/" element={<HomePage user={user} isAuthenticated={isAuthenticated} />} />
             <Route path="/pricing" element={<HomePage user={user} isAuthenticated={isAuthenticated} />} />
             <Route path="/app" element={
               <ChatInterface
-          apiClient={apiClient}
-          isAuthenticated={isAuthenticated}
+                apiClient={apiClient}
+                isAuthenticated={isAuthenticated}
                 user={user}
                 onSubmitQuery={handleSubmit}
                 onPDFComplete={handlePDFAnalysisComplete}
@@ -180,15 +180,15 @@ function App() {
               />
             } />
           </Routes>
-      </main>
-      <footer className="bg-white border-t border-gray-200 mt-12">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="text-center text-gray-600">
-            <p>&copy; 2024 VeritasAI Legal Multi-Agent System. Built with React & Tailwind CSS.</p>
+        </main>
+        <footer className="bg-white border-t border-gray-200 mt-auto">
+          <div className="w-full px-4 sm:px-6 lg:px-8 py-6">
+            <div className="text-center text-gray-600">
+              <p>&copy; 2024 VeritasAI Legal Multi-Agent System. Built with React & Tailwind CSS.</p>
+            </div>
           </div>
-        </div>
-      </footer>
-    </div>
+        </footer>
+      </div>
     </Router>
   );
 }

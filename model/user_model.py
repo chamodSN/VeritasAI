@@ -13,12 +13,10 @@ results_collection = db['results']
 
 def store_user(user_info: dict):
     """Store or update user information in MongoDB with encryption."""
-    # Encrypt sensitive user data
+    # Encrypt all sensitive user data
     encrypted_user_info = {
         "email": user_info["email"],  # Keep email unencrypted for lookup
         "user_id": user_info["user_id"],
-        "name": user_info.get("name", ""),
-        "picture": user_info.get("picture", ""),
         "encrypted_data": secure_storage.store_user_query(
             user_info["user_id"],
             user_info.get("name", "") + "|" + user_info.get("picture", "")
