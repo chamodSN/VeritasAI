@@ -152,8 +152,8 @@ def orchestrate_query_with_text(query: str, user_id: str, document_text: str) ->
         # Add query to the result data for linking
         serialized_result["original_query"] = query
         encrypted_result = secure_storage.store_analysis_result(user_id, serialized_result)
-        store_result(user_id, encrypted_result)
-        logger.info("Stored encrypted PDF analysis results for user: %s", user_id)
+        store_result(user_id, encrypted_result, original_query=query)
+        logger.info("Stored encrypted PDF analysis results for user: %s with query: %s", user_id, query)
 
         return result
 
@@ -394,8 +394,8 @@ def orchestrate_query(query: str, user_id: str) -> Dict[str, Any]:
             # Add query to the result data for linking
             serialized_result["original_query"] = query
             encrypted_result = secure_storage.store_analysis_result(user_id, serialized_result)
-            store_result(user_id, encrypted_result)
-            logger.info("Stored encrypted results for user: %s", user_id)
+            store_result(user_id, encrypted_result, original_query=query)
+            logger.info("Stored encrypted results for user: %s with query: %s", user_id, query)
 
             # Return serialized results for API response
             return serialized_result
@@ -499,24 +499,6 @@ def calculate_confidence(docs: List, verified_citations: List) -> float:
     return min(confidence, 1.0)  # Cap at 1.0
 
 
-def serialize_results(result: Dict[str, Any]) -> Dict[str, Any]:
-    """Serialize results for API response"""
-    serialized_result = {}
-    for key, value in result.items():
-        if hasattr(value, 'raw'):  # CrewOutput object
-            serialized_result[key] = str(value.raw)
-        elif hasattr(value, 'model_dump'):  # Pydantic models
-            serialized_result[key] = value.model_dump()
-        elif hasattr(value, '__dict__'):  # Custom objects like ResponsibleAICheck
-            try:
-                # Try to convert to dict first
-                serialized_result[key] = value.__dict__
-            except:
-                serialized_result[key] = str(value)
-        else:
-            serialized_result[key] = value
-
-    return serialized_result
 
 
 def get_case_alerts(query: str, _user_id: str) -> Dict[str, Any]:

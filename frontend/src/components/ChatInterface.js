@@ -10,6 +10,7 @@ const ChatInterface = ({ apiClient, isAuthenticated, user, onSubmitQuery, onPDFC
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [selectedHistoryId, setSelectedHistoryId] = useState(null);
   const resultRef = useRef(null);
 
   // Fetch history when authenticated
@@ -18,6 +19,13 @@ const ChatInterface = ({ apiClient, isAuthenticated, user, onSubmitQuery, onPDFC
       fetchHistory();
     }
   }, [isAuthenticated, user]);
+
+  // Clear selected history when query changes (new query submitted)
+  useEffect(() => {
+    if (query && !loading) {
+      setSelectedHistoryId(null);
+    }
+  }, [query, loading]);
 
 
   const fetchHistory = async () => {
@@ -103,18 +111,28 @@ const ChatInterface = ({ apiClient, isAuthenticated, user, onSubmitQuery, onPDFC
                 <div 
                   key={item._id || index}
                   onClick={async () => {
+                    setSelectedHistoryId(item._id);
                     setQuery(item.query);
                     setMode('query');
                     setError(null);
+                    setResults(null); // Clear current results first
                     
                     // Try to fetch results for this query
                     try {
                       console.log('Searching for query:', item.query);
+                      console.log('Query timestamp:', item.timestamp);
                       const response = await apiClient.get(`/api/user/results/by-query?query=${encodeURIComponent(item.query)}&timestamp=${encodeURIComponent(item.timestamp)}`);
                       console.log('Results response:', response.data);
+                      
                       if (response.data && response.data.result && !response.data.error) {
+                        console.log('Setting results for query:', item.query);
+                        console.log('Result data:', response.data.result);
+                        console.log('Original query from result:', response.data.original_query);
                         setResults(response.data.result);
+                        setError(null);
                       } else {
+                        console.log('No results found for query:', item.query);
+                        console.log('Response data:', response.data);
                         setResults(null);
                         setError('No previous results found for this query');
                       }
@@ -124,7 +142,11 @@ const ChatInterface = ({ apiClient, isAuthenticated, user, onSubmitQuery, onPDFC
                       setError('Failed to load previous results');
                     }
                   }}
-                  className="p-3 bg-white hover:bg-gray-100 rounded-lg cursor-pointer transition-colors border border-gray-200"
+                  className={`p-3 rounded-lg cursor-pointer transition-colors border ${
+                    selectedHistoryId === item._id 
+                      ? 'bg-blue-50 border-blue-200 shadow-sm' 
+                      : 'bg-white hover:bg-gray-100 border-gray-200'
+                  }`}
                 >
                   <p className="text-sm text-gray-900 font-medium line-clamp-2">{item.query}</p>
                   <p className="text-xs text-gray-500 mt-1">
