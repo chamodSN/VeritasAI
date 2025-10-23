@@ -325,9 +325,11 @@ async def get_results_by_query(query: str, timestamp: str = None, current_user: 
 async def get_user_history(current_user: dict = Depends(get_current_user)):
     """Get user's complete history including queries and results."""
     user_id = current_user["user_id"]
+    print(f"Fetching history for user_id: {user_id}")
     
     # Get encrypted queries
     encrypted_queries = get_user_queries(user_id)
+    print(f"Found {len(encrypted_queries)} encrypted queries for user_id: {user_id}")
     queries_data = []
     for query in encrypted_queries:
         try:

@@ -14,22 +14,28 @@ const ChatInterface = ({ apiClient, isAuthenticated, user, onSubmitQuery, onPDFC
 
   // Fetch history when authenticated
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && user) {
       fetchHistory();
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, user]);
 
 
   const fetchHistory = async () => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !user) return;
     
     setHistoryLoading(true);
     try {
+      console.log('Fetching history for user:', user.user_id);
       const response = await apiClient.get('/api/user/history');
+      console.log('History response:', response.data);
       setHistory(response.data.queries || []);
     } catch (err) {
       console.error('Error fetching history:', err);
-      setError('Failed to load history');
+      if (err.response?.status === 401) {
+        setError('Authentication expired. Please log in again.');
+      } else {
+        setError('Failed to load history');
+      }
     } finally {
       setHistoryLoading(false);
     }
@@ -46,7 +52,8 @@ const ChatInterface = ({ apiClient, isAuthenticated, user, onSubmitQuery, onPDFC
               <button 
                 onClick={fetchHistory}
                 disabled={historyLoading}
-                className="text-sm text-gray-600 hover:text-gray-800"
+                className="text-sm text-gray-600 hover:text-gray-800 p-1 rounded hover:bg-gray-100"
+                title="Refresh history"
               >
                 {historyLoading ? (
                   <i className="fas fa-spinner fa-spin"></i>
@@ -127,7 +134,11 @@ const ChatInterface = ({ apiClient, isAuthenticated, user, onSubmitQuery, onPDFC
               ))}
             </div>
           ) : (
-            <p className="text-sm text-gray-600">No queries yet. Start by asking a question!</p>
+            <div className="text-center py-4">
+              <i className="fas fa-history text-gray-400 mb-2 text-2xl"></i>
+              <p className="text-sm text-gray-600">No queries yet.</p>
+              <p className="text-xs text-gray-500 mt-1">Start by asking a question!</p>
+            </div>
           )}
         </div>
       </aside>

@@ -25,25 +25,35 @@ async def google_callback(request: Request):
         token = await oauth.google.authorize_access_token(request)
         user_info = await get_user_info(token['access_token'])
 
-        # Generate unique user ID
-        user_id = str(uuid.uuid4())
-
-        # Store user in MongoDB
-        user_data = {
-            "user_id": user_id,
-            "email": user_info.get('email'),
-            "name": user_info.get('name'),
-            "picture": user_info.get('picture'),
-            "google_id": user_info.get('id'),
-            "created_at": datetime.utcnow(),
-            "last_login": datetime.utcnow()
-        }
-
-        # Check if user already exists
+        # Check if user already exists first
         existing_user = get_user_by_email(user_info.get('email'))
+        
         if existing_user:
+            # Use existing user_id to preserve history
             user_id = existing_user['user_id']
-            user_data['last_login'] = datetime.utcnow()
+            print(f"Existing user login: {user_info.get('email')} with user_id: {user_id}")
+            user_data = {
+                "user_id": user_id,
+                "email": user_info.get('email'),
+                "name": user_info.get('name'),
+                "picture": user_info.get('picture'),
+                "google_id": user_info.get('id'),
+                "created_at": existing_user.get('created_at', datetime.utcnow()),
+                "last_login": datetime.utcnow()
+            }
+        else:
+            # Generate unique user ID only for new users
+            user_id = str(uuid.uuid4())
+            print(f"New user registration: {user_info.get('email')} with user_id: {user_id}")
+            user_data = {
+                "user_id": user_id,
+                "email": user_info.get('email'),
+                "name": user_info.get('name'),
+                "picture": user_info.get('picture'),
+                "google_id": user_info.get('id'),
+                "created_at": datetime.utcnow(),
+                "last_login": datetime.utcnow()
+            }
 
         store_user(user_data)
 
