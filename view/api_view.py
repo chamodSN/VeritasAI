@@ -3,7 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from controller.orchestrator import orchestrate_query, orchestrate_query_with_text, get_case_alerts
 from controller.auth_controller import verify_access_token
-from model.user_model import store_query, get_user_queries, get_user_results
+from model.user_model import store_query, get_user_queries, get_user_results, results_collection
 from model.courtlistener_advanced import courtlistener_advanced
 from agents.pdf.pdf_service import pdf_processor
 from common.responsible_ai import rai_framework
@@ -236,98 +236,110 @@ async def get_user_results_history(current_user: dict = Depends(get_current_user
 
 @router.get("/user/results/by-query")
 async def get_results_by_query(query: str, timestamp: str = None, current_user: dict = Depends(get_current_user)):
-    """Get analysis results for a specific query."""
-    from common.encryption import secure_storage
+    """Get analysis results for a specific query using direct MongoDB query."""
     from common.logging import logger
     
     user_id = current_user["user_id"]
-    encrypted_results = get_user_results(user_id)
     
-    logger.info("Searching for query: %s", query)
-    logger.info("Found %d encrypted results", len(encrypted_results))
+    logger.info("Searching for query: '%s'", query)
+    logger.info("Query timestamp: %s", timestamp)
     
-    # Find results that match the query
-    matching_results = []
-    for result in encrypted_results:
-        try:
-            if "encrypted_data" in result and "encryption_version" in result:
-                decrypted_data = secure_storage.retrieve_analysis_result({
-                    "encrypted_data": result["encrypted_data"],
-                    "encryption_version": result["encryption_version"]
-                })
-                stored_query = decrypted_data.get("original_query", "")
-                logger.info("Stored query: '%s', Searching for: '%s'", stored_query, query)
+    # First try direct MongoDB query using unencrypted original_query field
+    try:
+        # Normalize query for comparison
+        query_normalized = query.strip().lower()
+        
+        # Find results with matching original_query
+        matching_results = list(results_collection.find({
+            "user_id": user_id,
+            "original_query": {"$regex": f".*{query_normalized}.*", "$options": "i"}
+        }).sort("timestamp", -1))  # Sort by timestamp descending (most recent first)
+        
+        logger.info("Found %d results with regex match", len(matching_results))
+        
+        # If no regex matches, try exact match
+        if not matching_results:
+            exact_match = results_collection.find_one({
+                "user_id": user_id,
+                "original_query": query.strip()
+            })
+            if exact_match:
+                matching_results = [exact_match]
+                logger.info("Found exact match")
+        
+        # If still no matches and timestamp provided, try timestamp-based search
+        if not matching_results and timestamp:
+            logger.info("No query matches found, trying timestamp-based search")
+            from datetime import datetime, timedelta
+            
+            try:
+                query_timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                time_window = timedelta(minutes=5)
                 
-                # Check if this result matches the query
-                if stored_query == query:
-                    matching_results.append({
+                # Find results within time window
+                timestamp_results = list(results_collection.find({
+                    "user_id": user_id,
+                    "timestamp": {
+                        "$gte": query_timestamp - time_window,
+                        "$lte": query_timestamp + time_window
+                    }
+                }).sort("timestamp", -1))
+                
+                if timestamp_results:
+                    matching_results = timestamp_results
+                    logger.info("Found %d timestamp-based matches", len(matching_results))
+                    
+            except Exception as e:
+                logger.error("Error in timestamp search: %s", str(e))
+        
+        # Process matching results
+        if matching_results:
+            # Decrypt the most recent result
+            result = matching_results[0]
+            
+            try:
+                if "encrypted_data" in result and "encryption_version" in result:
+                    from common.encryption import secure_storage
+                    decrypted_data = secure_storage.retrieve_analysis_result({
+                        "encrypted_data": result["encrypted_data"],
+                        "encryption_version": result["encryption_version"]
+                    })
+                    
+                    logger.info("Successfully decrypted result for query: %s", result.get("original_query", ""))
+                    
+                    return {
                         "_id": str(result["_id"]),
                         "user_id": result["user_id"],
-                        "timestamp": decrypted_data.get("timestamp"),
+                        "timestamp": result.get("timestamp"),
                         "result": decrypted_data.get("result", {}),
-                        "original_query": stored_query
-                    })
-                    logger.info("Found matching result!")
-        except Exception as e:
-            logger.error("Error decrypting result: %s", str(e))
-            # Skip corrupted results
-            continue
-    
-    logger.info("Found %d matching results", len(matching_results))
-    
-    # If no exact query matches and timestamp is provided, try timestamp-based matching
-    if not matching_results and timestamp:
-        logger.info("No exact query match, trying timestamp-based matching")
-        from datetime import datetime, timedelta
-        
-        try:
-            query_timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-            time_window = timedelta(minutes=30)  # 30-minute window
+                        "original_query": result.get("original_query", ""),
+                        "match_type": "direct_query"
+                    }
+                else:
+                    logger.warning("Result missing encryption data")
+                    return {"error": "Result data is corrupted"}
+                    
+            except Exception as e:
+                logger.error("Error decrypting result: %s", str(e))
+                return {"error": "Failed to decrypt result data"}
+        else:
+            logger.warning("No matching results found for query: %s", query)
+            return {"error": "No results found for this query"}
             
-            for result in encrypted_results:
-                try:
-                    if "encrypted_data" in result and "encryption_version" in result:
-                        decrypted_data = secure_storage.retrieve_analysis_result({
-                            "encrypted_data": result["encrypted_data"],
-                            "encryption_version": result["encryption_version"]
-                        })
-                        
-                        result_timestamp_str = decrypted_data.get("timestamp", "")
-                        if result_timestamp_str:
-                            result_timestamp = datetime.fromisoformat(result_timestamp_str.replace('Z', '+00:00'))
-                            
-                            # Check if result is within time window
-                            if abs((query_timestamp - result_timestamp).total_seconds()) <= time_window.total_seconds():
-                                matching_results.append({
-                                    "_id": str(result["_id"]),
-                                    "user_id": result["user_id"],
-                                    "timestamp": decrypted_data.get("timestamp"),
-                                    "result": decrypted_data.get("result", {}),
-                                    "original_query": decrypted_data.get("original_query", "")
-                                })
-                                logger.info("Found timestamp-based match!")
-                except Exception as e:
-                    logger.error("Error in timestamp matching: %s", str(e))
-                    continue
-        except Exception as e:
-            logger.error("Error parsing timestamp: %s", str(e))
-    
-    # Return the most recent matching result
-    if matching_results:
-        # Sort by timestamp and return the most recent
-        matching_results.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
-        return matching_results[0]
-    else:
-        return {"error": "No results found for this query"}
+    except Exception as e:
+        logger.error("Error in get_results_by_query: %s", str(e))
+        return {"error": "Database query failed"}
 
 
 @router.get("/user/history")
 async def get_user_history(current_user: dict = Depends(get_current_user)):
     """Get user's complete history including queries and results."""
     user_id = current_user["user_id"]
+    print(f"Fetching history for user_id: {user_id}")
     
     # Get encrypted queries
     encrypted_queries = get_user_queries(user_id)
+    print(f"Found {len(encrypted_queries)} encrypted queries for user_id: {user_id}")
     queries_data = []
     for query in encrypted_queries:
         try:

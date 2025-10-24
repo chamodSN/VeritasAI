@@ -55,8 +55,8 @@ def store_query(user_id: str, query: dict):
     })
 
 
-def store_result(user_id: str, result: dict):
-    """Store encrypted analysis result."""
+def store_result(user_id: str, result: dict, original_query: str = None):
+    """Store encrypted analysis result with unencrypted query for easy retrieval."""
     # Convert CrewOutput objects to strings for MongoDB storage
     serialized_result = {}
     for key, value in result.items():
@@ -65,7 +65,15 @@ def store_result(user_id: str, result: dict):
         else:
             serialized_result[key] = value
 
-    results_collection.insert_one({"user_id": user_id, **serialized_result})
+    # Store with unencrypted original_query for easy querying
+    document = {
+        "user_id": user_id,
+        "original_query": original_query,  # Store unencrypted for querying
+        "timestamp": serialized_result.get("timestamp", datetime.utcnow()),
+        **serialized_result
+    }
+    
+    results_collection.insert_one(document)
 
 
 def get_user_queries(user_id: str):
