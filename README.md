@@ -43,17 +43,18 @@ cd ..
 Create a `.env` file in the root directory:
 ```env
 # Required Environment Variables
-JWT_SECRET=your_jwt_secret_key_here
-ENCRYPTION_KEY=your_32_character_encryption_key_here
-COURTLISTENER_API_KEY=your_courtlistener_api_key_here
-MONGO_URI=mongodb://localhost:27017/veritasai
+OPENAI_API_KEY=your_openai_api_key_here
+GOOGLE_CLIENT_ID=your_google_client_id_here
+GOOGLE_CLIENT_SECRET=your_google_client_secret_here
+MONGO_URI=your_mongodb_atlas_uri_here
+DATABASE_NAME=veritas_ai
+LLM_MODEL=gpt-4o-mini
+API_BASE_URL=https://api.openai.com/v1
+TEMPERATURE=0.4
 SESSION_SECRET_KEY=your_session_secret_key_here
-
-# Optional: Service URLs (defaults provided)
-CASE_FINDER_URL=http://localhost:8001
-SUMMARY_URL=http://localhost:8002
-CITATION_URL=http://localhost:8003
-PRECEDENT_URL=http://localhost:8004
+JWT_SECRET=your_jwt_secret_key_here
+COURTLISTENER_API_KEY=your_courtlistener_api_key_here
+ENCRYPTION_KEY=your_32_character_encryption_key_here
 ```
 
 #### 4. Start the Application
@@ -69,7 +70,6 @@ npm start
 The application will be available at:
 - **Frontend**: http://localhost:3000
 - **Backend API**: http://localhost:8000
-- **API Documentation**: http://localhost:8000/docs
 
 ## 📖 Usage Guide
 
@@ -222,23 +222,6 @@ VeritasAI/
 - **Data Encryption**: End-to-end encryption for user data
 - **Multi-Service Architecture**: Microservices for scalability
 - **Real-time Processing**: Live agent coordination and status updates
-
-## 🛠️ Development
-
-### Running Tests
-```bash
-# Run Python tests
-pytest
-
-# Run frontend tests
-cd frontend
-npm test
-```
-
-### Code Quality
-- **Linting**: ESLint for frontend, flake8 for backend
-- **Type Checking**: TypeScript for frontend, mypy for backend
-- **Testing**: Jest for frontend, pytest for backend
 
 ## 📝 License
 
