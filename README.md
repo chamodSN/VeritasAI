@@ -8,7 +8,7 @@ VeritasAI is an advanced multi-agent system for comprehensive legal case researc
 - **Python 3.10+** (Windows users: prefer Python 3.10/3.11 for best compatibility)
 - **Node.js 18+**
 - **CourtListener API key** (get from [CourtListener](https://www.courtlistener.com/api/))
-- **MongoDB** (local or cloud instance)
+- **MongoDB** (atlas cloud instance)
 
 ### Setup Instructions
 
