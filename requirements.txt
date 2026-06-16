@@ -1,31 +1,41 @@
-crewai
-fastapi
-uvicorn
-openai
-langchain
-langchain-openai
-langchain-community
-langchain-huggingface
-sentence-transformers
-pydantic
-python-docx
-pdfminer.six
-pymongo
-python-dotenv
-authlib
-PyJWT
-httpx
-faiss-cpu
-huggingface-hub
-torch
-transformers
-python-multipart
-itsdangerous
-court-listener
-spacy
-nltk
-scikit-learn
-numpy
-cryptography
-requests
-psutil
+# Web framework
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9 
+
+# Async HTTP & OAuth
+httpx>=0.27.0
+authlib>=1.3.0
+
+# LLM & Orchestration
+openai>=1.30.0
+langgraph>=0.1.0
+langchain-core>=0.2.0
+
+# Database
+motor>=3.4.0               
+pymongo>=4.7.0             
+
+# Auth & Security
+PyJWT>=2.8.0
+cryptography>=42.0.0
+starlette>=0.37.0          
+
+# Config & Logging
+pydantic>=2.7.0
+pydantic-settings>=2.3.0
+python-dotenv>=1.0.0
+structlog>=24.1.0
+
+# PDF Processing
+pdfplumber>=0.11.0
+pdfminer.six>=20221105
+
+#  NLP (lightweight — only for citation pattern matching)
+spacy>=3.7.0
+nltk>=3.8.0
+
+# Dev / Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+httpx>=0.27.0 
