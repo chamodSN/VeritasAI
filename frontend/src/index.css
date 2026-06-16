@@ -1,0 +1,111 @@
+/* src/index.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: #FAF8F5;
+    color: #1C1917;
+  }
+
+  /* Reduce motion for users who prefer it */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+
+  /*  Buttons */
+
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-5 py-2.5 rounded-btn
+           bg-sage text-white font-sans font-medium text-sm
+           hover:bg-sage-dark
+           disabled:opacity-40 disabled:cursor-not-allowed
+           transition-colors duration-150;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-btn
+           bg-white text-ink font-sans font-medium text-sm
+           border border-stone-dark
+           hover:bg-stone hover:border-stone-dark
+           disabled:opacity-40 disabled:cursor-not-allowed
+           transition-colors duration-150;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center gap-2 px-3 py-1.5 rounded-btn
+           text-mist font-sans text-sm
+           hover:bg-stone hover:text-ink
+           transition-colors duration-150;
+  }
+
+  /* Cards */
+
+  .card {
+    @apply bg-white rounded-card border border-stone shadow-card p-5;
+  }
+
+  .card-hover {
+    @apply card transition-shadow duration-150
+           hover:shadow-elevated hover:-translate-y-px;
+  }
+
+  /* Inputs */
+
+  .input-field {
+    @apply w-full px-4 py-3 rounded-input border border-stone
+           font-sans text-sm text-ink bg-white
+           placeholder:text-mist
+           focus:outline-none focus:ring-2 focus:ring-sage focus:border-sage
+           transition-colors duration-150 resize-none;
+  }
+
+  /* Badges */
+
+  .badge {
+    @apply inline-flex items-center gap-1 px-2 py-0.5
+           rounded-full text-xs font-medium font-sans;
+  }
+
+  .badge-valid   { @apply badge bg-sage-light text-sage-dark; }
+  .badge-invalid { @apply badge bg-danger-light text-danger; }
+  .badge-review  { @apply badge bg-amber-light text-amber; }
+  .badge-neutral { @apply badge bg-stone text-mist; }
+
+  /* Section headings (Crimson Pro) */
+
+  .section-title {
+    @apply font-serif text-h3 text-ink font-semibold;
+  }
+
+  /*  Mono text (citations, case numbers)  */
+
+  .citation-text {
+    @apply font-mono text-sm text-ink bg-stone px-2 py-0.5 rounded;
+  }
+
+  /* Sidebar item */
+
+  .sidebar-item {
+    @apply flex items-start gap-3 px-3 py-2.5 rounded-btn
+           text-sm text-ink cursor-pointer
+           hover:bg-stone transition-colors duration-100;
+  }
+
+  .sidebar-item-active {
+    @apply sidebar-item bg-sage-light text-sage-dark font-medium;
+  }
+}
