@@ -1,24 +1,19 @@
 // src/App.js
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthContext } from './context/AuthContext';
 import LandingPage from './pages/LandingPage';
 import AppPage from './pages/AppPage';
 import AuthCallback from './pages/AuthCallback';
 import { apiClient } from './lib/api';
 
-// Auth Context
-export const AuthContext = createContext(null);
-export const useAuth = () => useContext(AuthContext);
-
 export default function App() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
 
-  const token = () => localStorage.getItem('veritasai_token');
-
   const checkAuth = async () => {
-    const t = token();
-    if (!t) { setAuthLoading(false); return; }
+    const token = localStorage.getItem('veritasai_token');
+    if (!token) { setAuthLoading(false); return; }
     try {
       const res = await apiClient.get('/api/auth/me');
       setUser(res.data);
@@ -68,7 +63,6 @@ export default function App() {
   );
 }
 
-// Inline SVG scales icon — no external font needed
 function ScalesIcon({ className }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
