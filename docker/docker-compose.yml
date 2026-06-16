@@ -1,0 +1,81 @@
+version: "3.9"
+
+services:
+
+  # Backend API
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      target: runtime
+    image: veritasai-backend:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - ENVIRONMENT=production
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - backend_logs:/app/logs
+    networks:
+      - veritasai
+
+  # ARQ Background Worker
+  worker:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      target: runtime
+    image: veritasai-worker:latest
+    restart: unless-stopped
+    command: arq services.queue.WorkerSettings
+    env_file: .env
+    environment:
+      - ENVIRONMENT=production
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - veritasai
+
+  # Frontend
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    image: veritasai-frontend:latest
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - veritasai
+
+  # Redis
+  redis:
+    image: redis:7.2-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    ports:
+      - "6379:6379"
+    networks:
+      - veritasai
+
+volumes:
+  backend_logs:
+  redis_data:
+
+networks:
+  veritasai:
+    driver: bridge
