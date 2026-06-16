@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     LOG_LEVEL:str = "INFO"
     LOG_DIR:str = "./logs"
 
+    #Redis
+    REDIS_URL: str = "redis://localhost:6379/0"
+
     @field_validator("TEMPERATURE")
     @classmethod
     def temperature_range(cls, v:float) -> float:
