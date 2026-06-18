@@ -13,31 +13,10 @@ services:
     env_file: .env
     environment:
       - ENVIRONMENT=production
-    depends_on:
-      redis:
-        condition: service_healthy
     ports:
       - "8000:8000"
     volumes:
       - backend_logs:/app/logs
-    networks:
-      - veritasai
-
-  # ARQ Background Worker
-  worker:
-    build:
-      context: .
-      dockerfile: docker/backend.Dockerfile
-      target: runtime
-    image: veritasai-worker:latest
-    restart: unless-stopped
-    command: arq services.queue.WorkerSettings
-    env_file: .env
-    environment:
-      - ENVIRONMENT=production
-    depends_on:
-      redis:
-        condition: service_healthy
     networks:
       - veritasai
 
@@ -52,6 +31,22 @@ services:
       - "3000:80"
     depends_on:
       - backend
+    networks:
+      - veritasai
+
+  # ARQ Background Worker
+  worker:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      target: runtime
+    command: arq services.queue.WorkerSettings
+    env_file: .env
+    environment:
+      - ENVIRONMENT=production
+    depends_on:
+      redis:
+        condition: service_healthy
     networks:
       - veritasai
 
