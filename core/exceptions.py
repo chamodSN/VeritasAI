@@ -7,3 +7,8 @@ class VeritasAIError(Exception):
     def __init__(self, message: str | None = None):
         self.message = message or self.__class__.message
         super().__init__(self.message)
+
+#Raised when an external API (CourtListener, OpenAI) fails.
+class ExternalServiceError(VeritasAIError):
+    http_status = 502
+    message = "External service unavailable"
