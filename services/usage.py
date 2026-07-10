@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, date, timedelta
-from typing import Optional, Any
+from typing import List
 
 from core.logging import logger
 
@@ -30,11 +30,53 @@ class UsageTracker:
         from db.user_repository import get_database
 
         if self._db is None:
-            self._db = await get_database()
-
-        self._db = self._db['usage']
+            self._db = (await get_database())['usage']
         return self._db
+    
+    async def record(self,user_id:str,request_id:str,agent_name:str,model:str,input_tokens:str,output_tokens:str) -> None:
+        
+        cost = calculate_cost(model, input_tokens, output_tokens)
+        today = datetime.today().isoformat()
 
+        try:
+            collection = await self._get_collection()
+
+            await collection.update_one({
+                "user_id": user_id,
+                "date": today
+            },{
+                "$inc": {
+                    "total_input_tokens":  input_tokens,   # add to running total
+                    "total_output_tokens": output_tokens,  # add to running total
+                    "total_cost_usd":      cost,           # add to running total
+                    "total_requests":      1,              # count up by 1
+
+                    # These use f-strings to build nested field paths:
+                    f"agents.{agent_name}.input_tokens":  input_tokens,
+                    f"agents.{agent_name}.output_tokens": output_tokens,
+                    f"agents.{agent_name}.cost_usd":      cost,
+                },
+                "$setOnInsert": {"created_at": datetime.utcnow()},
+            },upsert=True
+            )
+
+            logger.debug("usage_recorded", user=user_id, agent=agent_name, tokens=input_tokens + output_tokens, cost_usd=cost)
+
+        except Exception as exc:
+            logger.warning("usage_record_failed", error=str(exc))
+
+        async def get_user_usage(self,user_id:str,days:int = 30) -> List[dict]:
+            cutoff = (date.today() - timedelta(days=days)).isoformat()
+
+            try:
+                collection = await self._get_collection()
+                cursor = collection.find({"user_id":user_id, "date":{"$gte":cutoff}},{"_id":0}).sort("date",-1)
+                return [doc async for doc in cursor]
+                
+            except Exception:
+                return []
+
+usage_tracker = UsageTracker()
 
 
 
