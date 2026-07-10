@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, date, timedelta
+from typing import Optional, Any
 
 from core.logging import logger
 
@@ -22,9 +23,21 @@ def calculate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
 class UsageTracker:
 
     def __init(self) -> None:
-        self._db = None
+        self._db = None # lazy initialization
 
-    async def_get_collection(self):
+    async def _get_collection(self):
+
+        from db.user_repository import get_database
+
+        if self._db is None:
+            self._db = await get_database()
+
+        self._db = self._db['usage']
+        return self._db
+
+
+
+
         
 
 
