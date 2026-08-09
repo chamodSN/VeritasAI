@@ -1,4 +1,10 @@
-
+# agents/citation.py
+"""
+LangGraph node that extracts and verifies legal citations from the arguments
+and summary, then cross-checks every citation the LLM marked VALID against
+CourtListener's Citation Lookup API — specifically to catch hallucinations
+the LLM itself wouldn't flag.
+"""
 from __future__ import annotations
 import json
 import re
