@@ -1,4 +1,3 @@
-# Path: api/routes/pdf.py
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
