@@ -21,7 +21,7 @@ def calculate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
     output_cost = (output_tokens / 1_000_000) * pricing["output"]
 
     return round(input_cost + output_cost, 6)
-
+..
 
 class UsageTracker:
 
