@@ -1,85 +1,91 @@
-from pydantic_settings import BaseSettings, SettingConfigDict 
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import field_validator
 from typing import List
 
+
 class Settings(BaseSettings):
-    model_config = SettingConfigDict(
+    model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
-        extra="ignore"
+        extra="ignore",
     )
 
     # Application
-    APP_NAME:str = "VeritasAI"
-    DEBUG:bool = False
-    Environment:str = "production"
+    APP_NAME: str = "VeritasAI"
+    DEBUG: bool = False
+    Environment: str = "production"
 
-    #LLM
-    LLM_MODEL:str = "gpt-4o-mini"
-    TEMPERATURE:float = 0.4
-    OPENAI_API_KEY:str
-    API_BASE_URL:str = "https://api.openai.com/v1"
+    # LLM
+    LLM_MODEL: str = "gpt-4o-mini"
+    TEMPERATURE: float = 0.4
+    OPENAI_API_KEY: str
+    API_BASE_URL: str = "https://api.openai.com/v1"
 
-    #DB
-    MONGO_URI:str
-    DATABASE_NAME:str = "veritas_ai"
+    # DB
+    MONGO_URI: str
+    DATABASE_NAME: str = "veritas_ai"
 
     # Authentication
-    GOOGLE_CLIENT_ID:str
-    GOOGLE_CLIENT_SECRET:str
-    JWT_SECRET:str
-    JWT_ALGORITHM:str = "HS256"
-    JWT_EXPIRY_HOURS:int = 24
-    SESSION_SECRET_KEY:str
+    GOOGLE_CLIENT_ID: str
+    GOOGLE_CLIENT_SECRET: str
+    JWT_SECRET: str
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRY_HOURS: int = 24
+    SESSION_SECRET_KEY: str
 
-    #Security
-    ENCRYPTION_KEY:str
+    # Security
+    ENCRYPTION_KEY: str
 
-    #External APIs
-    COURTLISTENER_API_KEY:str
+    # External APIs
+    COURTLISTENER_API_KEY: str
 
-    #CORS
-    ALLOWED_ORIGINS:str = "http://localhost:3000"
+    # CORS
+    ALLOWED_ORIGINS: str = "http://localhost:3000"
 
-    #Logging
-    LOG_LEVEL:str = "INFO"
-    LOG_DIR:str = "./logs"
+    # Logging
+    LOG_LEVEL: str = "INFO"
+    LOG_DIR: str = "./logs"
 
-    #Redis
+    # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
 
     @field_validator("TEMPERATURE")
     @classmethod
-    def temperature_range(cls, v:float) -> float:
+    def temperature_range(cls, v: float) -> float:
         if not (0.0 <= v <= 2.0):
             raise ValueError("TEMPERATURE must be between 0.0 and 2.0")
         return v
-    
+
     @field_validator("ENCRYPTION_KEY")
     @classmethod
-    def validate_encryption_key(cls, v:str) -> str:
+    def validate_encryption_key(cls, v: str) -> str:
         import base64
+
         try:
-            base64.urlsafe_b64decode(v.encode())
-            if len(v) != 32:
-                raise ValueError("Encryption key must decode to exactly 32 bytes")
+            decoded = base64.urlsafe_b64decode(v.encode())
         except Exception as exc:
             raise ValueError(
-                "ENCRYPTION_KEY must be a valid Fernet key. "
-                ) from exc
+                "ENCRYPTION_KEY must be a valid Fernet key "
+                "(generate with: python -c \"from cryptography.fernet import Fernet; "
+                "print(Fernet.generate_key().decode())\")"
+            ) from exc
+
+        if len(decoded) != 32:
+            raise ValueError(
+                "ENCRYPTION_KEY must decode to exactly 32 bytes "
+                "(generate with: python -c \"from cryptography.fernet import Fernet; "
+                "print(Fernet.generate_key().decode())\")"
+            )
         return v
-    
+
     @property
     def allowed_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.ALLOWED_ORIGINS.split(",")]
-    
+
     @property
     def is_development(self) -> bool:
         return self.Environment.lower() == "development"
 
+
 settings = Settings()
-
-
-
-
