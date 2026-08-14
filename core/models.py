@@ -1,16 +1,22 @@
-# core/models.py
+from __future__ import annotations
 
 from enum import Enum
+from typing import List, Optional
+
+from pydantic import BaseModel, Field
+
 
 class CitationStatus(str, Enum):
     VALID = "VALID"
     INVALID = "INVALID"
     NEEDS_REVIEW = "NEEDS_REVIEW"
 
+
 class ConfidenceLevel(str, Enum):
     HIGH = "HIGH"
     MEDIUM = "MEDIUM"
     LOW = "LOW"
+
 
 class CitationAnalysis(BaseModel):
     citation: str
