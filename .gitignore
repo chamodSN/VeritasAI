@@ -18,3 +18,5 @@ dist/
 
 #log files
 *.log
+
+.env
