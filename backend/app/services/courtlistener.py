@@ -8,8 +8,8 @@ from dataclasses import dataclass, field
 from typing import Optional, Any
 from openai import AsyncOpenAI
 
-from core.config import settings
-from core.exceptions import ExternalServiceError
+from VeritasAI.backend.app.core.config import settings
+from backend.app.core.errors import ExternalServiceError
 from core.logging import logger
 
 @dataclass

@@ -8,7 +8,7 @@ from langgraph.graph import StateGraph, END
 
 from core.logging import logger
 from graph.state import AnalysisState
-from services.courtlistener import courtlistener_client
+from backend.app.services.courtlistener import courtlistener_client
 from services.judge_intelligence import fetch_judge_profiles
 
 from agents.summarization import summarization_node

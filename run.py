@@ -1,5 +1,5 @@
 import uvicorn
-from core.config import settings
+from VeritasAI.backend.app.core.config import settings
 
 
 if __name__ == "__main__":

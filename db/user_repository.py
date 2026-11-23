@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional, Any
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
-from core.config import settings
+from VeritasAI.backend.app.core.config import settings
 from core.logging import logger
 
 _client: Optional[AsyncIOMotorClient] = None

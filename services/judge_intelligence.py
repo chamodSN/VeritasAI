@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from core.logging import logger
-from services.courtlistener import courtlistener_client, CaseResult
+from backend.app.services.courtlistener import courtlistener_client, CaseResult
 
 CL_PEOPLE_URL = "https://www.courtlistener.com/api/rest/v4/people/"
 

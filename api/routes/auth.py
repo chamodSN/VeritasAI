@@ -7,7 +7,7 @@ from authlib.integrations.starlette_client import OAuth
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
-from core.config import settings
+from VeritasAI.backend.app.core.config import settings
 from core.logging import logger
 from core.security import create_access_token
 from api.deps import get_current_user, get_user_repo

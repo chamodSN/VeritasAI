@@ -7,7 +7,7 @@ from arq import create_pool
 from arq.connections import RedisSettings
 from redis.asyncio import Redis, from_url
 
-from core.config import settings
+from VeritasAI.backend.app.core.config import settings
 from core.logging import logger
 
 JOB_RESULT_PREFIX = "veritasai:job_result:"

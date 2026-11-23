@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Header
 
-from core.config import settings
+from VeritasAI.backend.app.core.config import settings
 from api.deps import get_current_user
 from services.usage import usage_tracker
 
