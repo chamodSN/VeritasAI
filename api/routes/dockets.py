@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from api.deps import get_current_user
-from services.courtlistener import courtlistener_client
+from backend.app.services.courtlistener import courtlistener_client
 from services.docket_monitor import list_user_alerts, save_user_alert, remove_user_alert
 
 router = APIRouter()

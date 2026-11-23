@@ -3,7 +3,7 @@ from typing import Any
 import jwt
 from fastapi import HTTPException, status
 
-from config import settings
+from VeritasAI.backend.app.core.config import settings
 from logging import logger
 
 def create_access_token(user_id:str, email:str) -> str:

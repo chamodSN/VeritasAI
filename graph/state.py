@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Optional, TypedDict
 
 from core.models import CitationVerificationResult
-from services.courtlistener import CaseResult
+from backend.app.services.courtlistener import CaseResult
 from services.judge_intelligence import JudgeProfile
 
 

@@ -14,7 +14,7 @@ from agents.base_agent import BaseAgent
 from core.models import CitationAnalysis, CitationStatus, CitationVerificationResult, ConfidenceLevel
 from core.logging import logger
 from graph.state import AnalysisState
-from services.courtlistener import courtlistener_client
+from backend.app.services.courtlistener import courtlistener_client
 
 
 class CitationAgent(BaseAgent):

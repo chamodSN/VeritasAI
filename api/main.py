@@ -7,9 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
 
-from core.config import settings
+from VeritasAI.backend.app.core.config import settings
 from core.logging import logger
-from core.exceptions import VeritasAIError
+from backend.app.core.errors import VeritasAIError
 from services.queue import get_redis_pool, close_redis_pool
 
 from api.routes import auth, query, pdf, admin, dockets

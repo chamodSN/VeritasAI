@@ -4,7 +4,7 @@ import asyncio
 from abc import ABC, abstractmethod
 from typing import Any
 from openai import AsyncOpenAI
-from core.config import settings
+from VeritasAI.backend.app.core.config import settings
 from core.logging import logger
 
 
